@@ -1,0 +1,135 @@
+#!/bin/sh
+# vm - manage the OpenBSD rehearsal VM and move configuration in and out of it.
+# The repo containing this script is the deliverable; the VM is disposable.
+set -eu
+
+NAME=${OPENBSD_VM_NAME:-openbsd}
+DIR=${OPENBSD_VM_DIR:-$HOME/VMs/openbsd}
+REPO=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+SSH_HOST=${OPENBSD_SSH_HOST:-openbsd}
+ISO=$DIR/install80.iso
+DISK=$DIR/openbsd.qcow2
+GUEST_USER=peter
+GUEST_HOME=/home/peter
+V="virsh --connect qemu:///system"
+
+usage() {
+	cat <<'EOF'
+Usage: vm <command> [args]
+
+  new         create the domain (then run the installer in virt-manager)
+  bootstrap   copy this repo to the guest and run provision.sh --vm
+              (first run asks for the guest password twice)
+  up          start the domain
+  down        graceful shutdown (needs qemu-ga)
+  off         hard power off
+  status      domain state and guest address
+  ssh [args]  shell on the guest (or run a command)
+  console     serial console (escape with Ctrl-])
+  run <cmd>   run a command on the guest, no file sync
+  apply       push etc/ + etc-vm/ + home/ to the guest, validate, restart sshd
+  capture     pull tracked config from the guest back into this repo
+  snap [tag]  snapshot the domain
+  rebuild     destroy domain and disk, then 'vm new' again
+
+Environment: OPENBSD_VM_NAME, OPENBSD_VM_DIR, OPENBSD_SSH_HOST
+EOF
+}
+
+check_libvirt() {
+	if ! $V list >/dev/null 2>&1; then
+		echo "error: no libvirt access. Log out and back in so the libvirt group applies." >&2
+		exit 1
+	fi
+}
+
+case ${1:-} in
+new)
+	check_libvirt
+	mkdir -p "$DIR"
+	[ -f "$ISO" ] || { echo "error: missing $ISO" >&2; exit 1; }
+	virt-install --connect qemu:///system --name "$NAME" \
+		--memory 6144 --vcpus 4 \
+		--machine q35 --boot uefi \
+		--disk path="$DISK",size=40,format=qcow2,bus=virtio,cache=writeback,discard=unmap \
+		--cdrom "$ISO" \
+		--network network=default,model=virtio \
+		--graphics spice,listen=127.0.0.1 --video vga \
+		--console pty,target_type=isa-serial \
+		--os-variant openbsd7.9 \
+		--noautoconsole
+	echo "domain created. Open virt-manager to run the installer, or: vm console"
+	;;
+
+bootstrap)
+	check_libvirt
+	tar -C "$REPO" -cf - . |
+		ssh "$SSH_HOST" 'rm -rf ~/openbsd-setup && mkdir -p ~/openbsd-setup && tar -C ~/openbsd-setup -xf -'
+	ssh -t "$SSH_HOST" 'cd ~/openbsd-setup && doas ./provision.sh --vm'
+	;;
+
+up)      check_libvirt; $V start "$NAME" ;;
+down)    $V shutdown "$NAME" ;;
+off)     $V destroy "$NAME" ;;
+status)
+	$V list --all
+	$V domifaddr "$NAME" --source lease 2>/dev/null || true
+	;;
+
+ssh)     shift; exec ssh "$SSH_HOST" "$@" ;;
+console) exec $V console "$NAME" ;;
+run)     shift; exec ssh "$SSH_HOST" "$*" ;;
+
+snap)
+	$V snapshot-create-as "$NAME" "${2:-snap-$(date +%Y%m%d-%H%M%S)}"
+	;;
+
+apply)
+	check_libvirt
+	tmp=$(mktemp -d)
+	trap 'rm -rf "$tmp"' EXIT
+	cp -R "$REPO/etc/." "$tmp/"
+	[ -d "$REPO/etc-vm" ] && cp -R "$REPO/etc-vm/." "$tmp/"
+	(cd "$tmp" && tar -cf - .) | ssh root@"$SSH_HOST" 'tar -C / -xpf -'
+	(cd "$REPO/home" && tar -cf - .) |
+		ssh root@"$SSH_HOST" "tar -C $GUEST_HOME -xpf - && chown -R $GUEST_USER:$GUEST_USER $GUEST_HOME"
+	ssh root@"$SSH_HOST" 'sh -s' < "$REPO/validate.sh"
+	ssh root@"$SSH_HOST" 'rcctl restart sshd'
+	echo "applied and validated"
+	;;
+
+capture)
+	tmp=$(mktemp -d)
+	trap 'rm -rf "$tmp"' EXIT
+	ssh root@"$SSH_HOST" 'tar -C / -cf - \
+		etc/doas.conf etc/installurl etc/pf.conf etc/sysctl.conf \
+		etc/myname etc/hostname.vio0 etc/boot.conf etc/ttys \
+		etc/wsconsctl.conf etc/ssh/sshd_config etc/ssh/sshd_config.d \
+		etc/X11 etc/rc.conf.local \
+		home/peter/.profile home/peter/.kshrc home/peter/.xsession \
+		home/peter/.spectrwm.conf home/peter/.Xresources \
+		home/peter/.tmux.conf home/peter/.gitconfig home/peter/.config \
+		2>/dev/null' | tar -C "$tmp" -xf - 2>/dev/null || true
+
+	mkdir -p "$REPO/etc" "$REPO/etc-vm" "$REPO/home"
+	for f in hostname.vio0 boot.conf ttys rc.conf.local; do
+		[ -e "$tmp/etc/$f" ] && mv "$tmp/etc/$f" "$REPO/etc-vm/$f"
+	done
+	[ -d "$tmp/etc" ] && cp -R "$tmp/etc/." "$REPO/etc/"
+	[ -d "$tmp/home/peter" ] && cp -R "$tmp/home/peter/." "$REPO/home/"
+	git -C "$REPO" diff --stat || true
+	echo "captured; review with: git -C $REPO diff"
+	;;
+
+rebuild)
+	$V destroy "$NAME" 2>/dev/null || true
+	$V undefine "$NAME" --nvram 2>/dev/null || true
+	rm -f "$DISK"
+	exec "$0" new
+	;;
+
+*)
+	usage
+	exit 1
+	;;
+esac

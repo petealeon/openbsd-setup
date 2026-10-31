@@ -1,0 +1,4 @@
+secrets/*
+!secrets/.gitignore
+*.qcow2
+*.iso

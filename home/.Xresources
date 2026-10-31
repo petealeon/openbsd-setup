@@ -1,0 +1,7 @@
+XTerm*faceName: monospace
+XTerm*faceSize: 11
+XTerm*background: #1a1b26
+XTerm*foreground: #c0caf5
+XTerm*cursorColor: #7aa2f7
+XTerm*highlightColor: #7aa2f7
+XTerm*saveLines: 10000

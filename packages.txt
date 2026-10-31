@@ -1,0 +1,23 @@
+# Portable packages. xterm and tmux are in the OpenBSD base system.
+spectrwm
+dmenu
+firefox
+git
+rsync
+curl
+wget
+neovim
+htop
+jq
+ripgrep
+fd
+fzf
+tree
+xclip
+feh
+maim
+scrot
+noto-fonts
+liberation-fonts
+picom
+xdotool

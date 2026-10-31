@@ -1,0 +1,4 @@
+# Copy to /etc/hostname.iwm0 on the T480s and fill in the real values.
+# Keep the real passphrase out of git (see secrets/).
+join "SSID" wpakey "PASSPHRASE"
+inet autoconf
