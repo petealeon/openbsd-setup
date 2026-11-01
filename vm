@@ -50,12 +50,13 @@ new)
 	[ -f "$ISO" ] || { echo "error: missing $ISO" >&2; exit 1; }
 	virt-install --connect qemu:///system --name "$NAME" \
 		--memory 6144 --vcpus 4 \
-		--machine q35 --boot uefi \
+		--machine q35 \
+		--boot loader=/usr/share/edk2/x64/OVMF_CODE.4m.fd,loader.readonly=yes,loader.type=pflash,nvram.template=/usr/share/edk2/x64/OVMF_VARS.4m.fd \
 		--disk path="$DISK",size=40,format=qcow2,bus=virtio,cache=writeback,discard=unmap \
 		--cdrom "$ISO" \
-		--network network=default,model=virtio \
+		--network network=default,model=virtio,mac=52:54:00:8c:51:3a \
 		--graphics spice,listen=127.0.0.1 --video vga \
-		--console pty,target_type=isa-serial \
+		--console pty \
 		--os-variant openbsd7.9 \
 		--noautoconsole
 	echo "domain created. Open virt-manager to run the installer, or: vm console"
@@ -65,7 +66,12 @@ bootstrap)
 	check_libvirt
 	tar -C "$REPO" -cf - . |
 		ssh "$SSH_HOST" 'rm -rf ~/openbsd-setup && mkdir -p ~/openbsd-setup && tar -C ~/openbsd-setup -xf -'
-	ssh -t "$SSH_HOST" 'cd ~/openbsd-setup && doas ./provision.sh --vm'
+	if ssh -o BatchMode=yes root@"$SSH_HOST" true 2>/dev/null; then
+		ssh root@"$SSH_HOST" 'cd /home/peter/openbsd-setup && ./provision.sh --vm'
+	else
+		echo "root SSH not set up yet; falling back to doas (password prompt)." >&2
+		ssh -t "$SSH_HOST" 'cd ~/openbsd-setup && doas ./provision.sh --vm'
+	fi
 	;;
 
 up)      check_libvirt; $V start "$NAME" ;;
@@ -88,13 +94,15 @@ apply)
 	check_libvirt
 	tmp=$(mktemp -d)
 	trap 'rm -rf "$tmp"' EXIT
-	cp -R "$REPO/etc/." "$tmp/"
-	[ -d "$REPO/etc-vm" ] && cp -R "$REPO/etc-vm/." "$tmp/"
-	(cd "$tmp" && tar -cf - .) | ssh root@"$SSH_HOST" 'tar -C / -xpf -'
+	mkdir -p "$tmp/etc"
+	cp -R "$REPO/etc/." "$tmp/etc/"
+	[ -d "$REPO/etc-vm" ] && cp -R "$REPO/etc-vm/." "$tmp/etc/"
+	(cd "$tmp" && tar -cf - etc) | ssh root@"$SSH_HOST" 'tar -C / -xpf -'
+	ssh root@"$SSH_HOST" 'find /etc -user peter -exec chown root:wheel {} + 2>/dev/null; chmod 600 /etc/doas.conf'
 	(cd "$REPO/home" && tar -cf - .) |
 		ssh root@"$SSH_HOST" "tar -C $GUEST_HOME -xpf - && chown -R $GUEST_USER:$GUEST_USER $GUEST_HOME"
 	ssh root@"$SSH_HOST" 'sh -s' < "$REPO/validate.sh"
-	ssh root@"$SSH_HOST" 'rcctl restart sshd'
+	ssh root@"$SSH_HOST" 'rcctl reload sshd || rcctl restart sshd'
 	echo "applied and validated"
 	;;
 

@@ -36,12 +36,15 @@ if [ "$MODE" = vm ]; then
 fi
 
 echo "== /etc overlay =="
-tar -C "$REPO/etc" -cf - . | tar -C / -xpf -
+tar -C "$REPO" -cf - etc | tar -C / -xpf -
 if [ "$MODE" = vm ]; then
-	tar -C "$REPO/etc-vm" -cf - . | tar -C / -xpf -
+	tar -C "$REPO/etc-vm" -cf - . | tar -C /etc -xpf -
 else
-	tar -C "$REPO/etc-hardware" -cf - . | tar -C / -xpf -
+	tar -C "$REPO/etc-hardware" -cf - . | tar -C /etc -xpf -
 fi
+# Archives are built from unprivileged files: fix ownership, then lock down doas.
+find /etc -user "$GUEST_USER" -exec chown root:wheel {} + 2>/dev/null || true
+[ -f /etc/doas.conf ] && chmod 600 /etc/doas.conf
 
 echo "== home overlay =="
 tar -C "$REPO/home" -cf - . | tar -C "$GUEST_HOME" -xpf -
@@ -71,6 +74,9 @@ if [ "$MODE" = vm ]; then
 else
 	fw_update || true
 fi
+
+# Pick up newly installed sshd drop-ins without dropping the running session.
+rcctl reload sshd 2>/dev/null || true
 
 echo "== validate =="
 sh "$REPO/validate.sh"

@@ -1,2 +1,1 @@
-# VM-only packages. Never install these on bare metal.
 qemu-ga

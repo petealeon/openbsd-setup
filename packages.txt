@@ -1,9 +1,8 @@
-# Portable packages. xterm and tmux are in the OpenBSD base system.
 spectrwm
 dmenu
 firefox
 git
-rsync
+rsync-3.5.1
 curl
 wget
 neovim
