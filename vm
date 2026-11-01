@@ -7,7 +7,7 @@ NAME=${OPENBSD_VM_NAME:-openbsd}
 DIR=${OPENBSD_VM_DIR:-$HOME/VMs/openbsd}
 REPO=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 SSH_HOST=${OPENBSD_SSH_HOST:-openbsd}
-ISO=$DIR/install80.iso
+ISO=${OPENBSD_VM_ISO:-$DIR/install80.iso}
 DISK=$DIR/openbsd.qcow2
 GUEST_USER=peter
 GUEST_HOME=/home/peter
@@ -17,11 +17,11 @@ usage() {
 	cat <<'EOF'
 Usage: vm <command> [args]
 
-  new         create the domain (then run the installer in virt-manager)
+  new         create the domain (then run the installer)
   bootstrap   copy this repo to the guest and run provision.sh --vm
-              (first run asks for the guest password twice)
+              (first run needs /etc/doas.conf; see README)
   up          start the domain
-  down        graceful shutdown (needs qemu-ga)
+  down        graceful shutdown (ACPI power button)
   off         hard power off
   status      domain state and guest address
   ssh [args]  shell on the guest (or run a command)
@@ -32,7 +32,7 @@ Usage: vm <command> [args]
   snap [tag]  snapshot the domain
   rebuild     destroy domain and disk, then 'vm new' again
 
-Environment: OPENBSD_VM_NAME, OPENBSD_VM_DIR, OPENBSD_SSH_HOST
+Environment: OPENBSD_VM_NAME, OPENBSD_VM_DIR, OPENBSD_VM_ISO, OPENBSD_SSH_HOST
 EOF
 }
 
@@ -48,10 +48,15 @@ new)
 	check_libvirt
 	mkdir -p "$DIR"
 	[ -f "$ISO" ] || { echo "error: missing $ISO" >&2; exit 1; }
+	# OVMF varstore in qcow2: libvirt refuses internal snapshots when the
+	# pflash nvram is raw. qemu-img ships with qemu.
+	NV=$DIR/OVMF_VARS.qcow2
+	[ -f "$NV" ] || qemu-img convert -f raw -O qcow2 \
+		/usr/share/edk2/x64/OVMF_VARS.4m.fd "$NV"
 	virt-install --connect qemu:///system --name "$NAME" \
 		--memory 6144 --vcpus 4 \
 		--machine q35 \
-		--boot loader=/usr/share/edk2/x64/OVMF_CODE.4m.fd,loader.readonly=yes,loader.type=pflash,nvram.template=/usr/share/edk2/x64/OVMF_VARS.4m.fd \
+		--boot loader=/usr/share/edk2/x64/OVMF_CODE.4m.fd,loader.readonly=yes,loader.type=pflash,nvram.template=$NV,nvram.templateFormat=qcow2 \
 		--disk path="$DISK",size=40,format=qcow2,bus=virtio,cache=writeback,discard=unmap \
 		--cdrom "$ISO" \
 		--network network=default,model=virtio,mac=52:54:00:8c:51:3a \
@@ -69,6 +74,19 @@ bootstrap)
 	if ssh -o BatchMode=yes root@"$SSH_HOST" true 2>/dev/null; then
 		ssh root@"$SSH_HOST" 'cd /home/peter/openbsd-setup && ./provision.sh --vm'
 	else
+		if ! ssh "$SSH_HOST" 'test -f /etc/doas.conf' 2>/dev/null; then
+			cat >&2 <<'EOF'
+error: the guest has neither root SSH nor doas yet.
+
+The installer does not create /etc/doas.conf. The repo is now in the
+guest. Log in on the serial console as root (./vm console) and run:
+
+  install -m 600 /home/peter/openbsd-setup/etc/doas.conf /etc/doas.conf
+
+Then run './vm bootstrap' again.
+EOF
+			exit 1
+		fi
 		echo "root SSH not set up yet; falling back to doas (password prompt)." >&2
 		ssh -t "$SSH_HOST" 'cd ~/openbsd-setup && doas ./provision.sh --vm'
 	fi

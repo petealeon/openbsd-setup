@@ -1,0 +1,38 @@
+# Draft autoinstall response file for the rehearsal VM.
+#
+# NOT YET TESTED. The interactive serial procedure in README.md is the
+# verified path; this file records the same answers in autoinstall form.
+#
+# Use it by booting the ISO and answering (A)utoinstall, or at the
+# bootloader: boot -a?  See autoinstall(8).
+#
+# It wipes the first disk. Never point it at /dev/nvme0n1 on the host --
+# inside the VM the virtio disk is sd0, and the host disk is not visible.
+
+System hostname = openbsd
+Network interfaces = vio0
+IPv4 address for vio0 = autoconf
+IPv6 address for vio0 = none
+DNS domain name = my.domain
+DNS nameservers = none
+
+Password for root = CHANGEME
+Start sshd = yes
+Do you want the X Window System = yes
+Change the default console to com0 = yes
+Which speed should com0 use = 115200
+
+Setup a user = peter
+Full name for user peter = Peter
+Password for user peter = CHANGEME
+Allow root ssh login = no
+
+Which disk is the root disk = sd0
+Use (W)hole disk MBR, whole disk (G)PT = g
+Encrypt the root disk = no
+Use (A)uto layout, (E)dit layout = A
+What timezone are you in = Europe/Dublin
+
+Location of sets = cd0
+Set name(s) = all
+Continue without verification = yes

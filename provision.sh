@@ -31,7 +31,7 @@ syspatch || true
 
 echo "== packages =="
 pkg_add -l "$REPO/packages.txt"
-if [ "$MODE" = vm ]; then
+if [ -s "$REPO/packages-vm.txt" ]; then
 	pkg_add -l "$REPO/packages-vm.txt"
 fi
 
@@ -61,7 +61,6 @@ fi
 echo "== services =="
 [ -x /etc/rc.d/xenodm ] && rcctl enable xenodm
 if [ "$MODE" = vm ]; then
-	[ -x /etc/rc.d/qemu_ga ] && rcctl enable qemu_ga
 	# serial console getty for virsh console
 	if ! grep -q '^tty00' /etc/ttys; then
 		echo 'tty00 "/usr/libexec/getty std.115200" vt220 on secure' >>/etc/ttys
