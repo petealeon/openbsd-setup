@@ -181,6 +181,23 @@ virsh --connect qemu:///system snapshot-delete openbsd before-update
 `vm down` shuts down via ACPI; `vm off` is a hard power off (necessary after a
 guest `halt`, which leaves the domain "running").
 
+### Console pointer grab
+
+The SPICE console grabs the pointer because OpenBSD's `ums` driver has no
+absolute-pointer support (no SPICE agent either). While grabbed, the window
+title says *"Press Shift+F12 to release pointer."*
+
+This host is configured to use **Shift+F12**. virt-manager's default is
+Ctrl+Alt, which collides with other things; to restore it:
+
+```sh
+gsettings reset org.virt-manager.virt-manager.console grab-keys
+```
+
+If any grab ever swallows the keyboard: `Ctrl+Alt+F2` (VT switch, handled by
+the kernel), log in, `pkill -f virt-manager`, then `Ctrl+Alt+F1` back to the
+desktop.
+
 ## Export to bare metal
 
 1. Fresh OpenBSD 8.0 install on the T480s (the installer creates `peter`).
