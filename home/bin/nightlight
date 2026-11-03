@@ -1,0 +1,51 @@
+#!/bin/sh
+# nightlight [on|off|toggle] — warm the panel through RandR gamma.
+#
+# Gamma resets whenever the output mode changes, so toggle again after dock,
+# undock or resume.
+
+set -u
+
+state="$HOME/.cache/nightlight"
+mkdir -p "$(dirname "$state")" 2>/dev/null || true
+
+output() {
+	xrandr --query 2>/dev/null |
+		sed -n 's/^\([^ ]*\) connected.*/\1/p' | sed -n 1p
+}
+
+apply() {
+	out=$(output)
+	[ -n "$out" ] || {
+		echo "${0##*/}: no connected output" >&2
+		exit 1
+	}
+	if [ "$1" = on ]; then
+		xrandr --output "$out" --gamma 1.00:0.86:0.68 || exit 1
+		printf 'on\n' >"$state"
+	else
+		xrandr --output "$out" --gamma 1.00:1.00:1.00 || exit 1
+		printf 'off\n' >"$state"
+	fi
+}
+
+case ${1:-toggle} in
+on)  apply on ;;
+off) apply off ;;
+toggle)
+	if [ "$(cat "$state" 2>/dev/null)" = on ]; then
+		apply off
+	else
+		apply on
+	fi
+	;;
+*)
+	echo "usage: ${0##*/} [on|off|toggle]" >&2
+	exit 1
+	;;
+esac
+
+if command -v notify-send >/dev/null 2>&1; then
+	notify-send -a nightlight -t 1500 "night light" \
+		"$(cat "$state" 2>/dev/null || echo unknown)"
+fi

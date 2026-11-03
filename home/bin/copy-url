@@ -1,0 +1,41 @@
+#!/bin/sh
+# copy-url — read the URL out of the focused Chromium window.
+#
+# Chromium is pledged and unveiled on OpenBSD, so a browser extension cannot
+# hand us the current tab. Instead: focus the window, select the address bar,
+# copy, read the clipboard. The clipboard is restored afterwards so this is
+# safe to call from a keybinding.
+
+set -u
+
+command -v xdotool >/dev/null 2>&1 || exit 1
+command -v xclip >/dev/null 2>&1 || exit 1
+
+win=$(xdotool getactivewindow 2>/dev/null) || exit 1
+
+# If the focused window is not the browser, ctrl+l would go to a terminal.
+# Super+Shift+C and Super+Shift+D are global bindings, so activate Chromium
+# first and take the URL from there.
+if ! xdotool getwindowclassname "$win" 2>/dev/null | grep -qi chrom; then
+	win=$(xdotool search --class chrom 2>/dev/null | tail -1)
+	[ -n "$win" ] || exit 1
+	xdotool windowactivate --sync "$win" 2>/dev/null || true
+	sleep 0.2
+fi
+
+save=$(xclip -selection clipboard -o 2>/dev/null || true)
+
+xdotool windowactivate --sync "$win" 2>/dev/null || true
+xdotool key --clearmodifiers ctrl+l
+sleep 0.15
+xdotool key --clearmodifiers ctrl+c
+sleep 0.25
+
+url=$(xclip -selection clipboard -o 2>/dev/null || true)
+
+printf '%s' "${save:-}" | xclip -selection clipboard 2>/dev/null || true
+
+case $url in
+http://*|https://*) printf '%s\n' "$url" ;;
+*) exit 1 ;;
+esac

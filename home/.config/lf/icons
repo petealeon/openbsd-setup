@@ -1,0 +1,87 @@
+# ~/.config/lf/icons — amber desktop kit
+#
+# Curated subset of lf's icons file: pattern, glyph, optional SGR colour.
+# Needs the bundled BlexMono Nerd Font (st's configured font).
+# Codepoints are all from the Font Awesome 4 block, so they are present in
+# every Nerd Font build rather than depending on the brand-icon range.
+
+ln                36
+or                31
+tw                33
+ow                01;33
+st                01;33
+di                33
+pi                33
+so                35
+ex                32
+fi                90
+
+.git/             31
+node_modules/     90
+README*           01;33
+Makefile          33
+*.md              34
+*.txt             34
+*.rst             34
+*.org             34
+*.log             90
+*.pdf             01;31
+*.epub            33
+*.doc             33
+*.docx            33
+*.odt             33
+*.xls             33
+*.xlsx            33
+*.ods             33
+*.ppt             33
+*.pptx            33
+*.png             35
+*.jpg             35
+*.jpeg            35
+*.gif             35
+*.webp            35
+*.svg             35
+*.mp4             35
+*.mkv             35
+*.webm            35
+*.avi             35
+*.mov             35
+*.mp3             36
+*.flac            36
+*.ogg             36
+*.wav             36
+*.m4a             36
+*.zip             31
+*.tar             31
+*.tgz             31
+*.gz              31
+*.bz2             31
+*.xz              31
+*.7z              31
+*.rar             31
+*.iso             35
+*.c               36
+*.h               36
+*.go              36
+*.rs              36
+*.py              36
+*.rb              36
+*.pl              36
+*.js              36
+*.ts              36
+*.css             36
+*.html            36
+*.sh              36
+*.conf            33
+*.toml            33
+*.yaml            33
+*.yml             33
+*.json            33
+*.ini             33
+*.sql             36
+*.lock            31
+*.key             31
+*.pem             31
+*.ttf             35
+*.otf             35
+*.woff            35

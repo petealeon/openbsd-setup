@@ -1,0 +1,27 @@
+/* ~/.config/rofi/config.rasi — rofi defaults for the amber desktop.
+   The palette lives in ~/.config/rofi/themes/amber.rasi (installed by
+   theme-apply from the spectrwm theme directory). */
+
+configuration {
+    modi:                  "drun,run,window";
+    show-icons:            true;
+    icon-theme:            "Papirus-Dark";
+    terminal:              "st";
+    font:                  "BlexMono Nerd Font 12";
+
+    drun-display-format:   "{name}";
+    drun-match-fields:     "name,generic,exec,categories,keywords";
+    display-drun:          "apps";
+    display-run:           "run";
+    display-window:        "windows";
+
+    hover-select:          true;
+    cycle:                 true;
+    sorting-method:        "fzf";
+
+    kb-row-up:             "Up,Control+p";
+    kb-row-down:           "Down,Control+n";
+    kb-cancel:             "Escape,Control+bracketleft";
+}
+
+@theme "amber"

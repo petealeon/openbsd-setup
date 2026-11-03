@@ -1,0 +1,59 @@
+#!/bin/sh
+# video-download [url] — download a video from the focused Chromium tab.
+#
+# Omarchy-style flow: Super+Shift+D. The URL comes from (in order) the
+# argument, the clipboard, or Chromium's address bar via copy-url. yt-dlp runs
+# in an st window so you can see progress, and the muxed file lands in
+# ~/Videos/Downloads.
+
+set -u
+
+url=${1:-}
+notify() {
+	command -v notify-send >/dev/null 2>&1 && notify-send -a download "$@" 2>/dev/null
+	return 0
+}
+
+if [ -z "$url" ]; then
+	url=$(xclip -selection clipboard -o 2>/dev/null || true)
+fi
+
+case $url in
+http://*|https://*) ;;
+*)
+	url=$("$HOME/bin/copy-url" 2>/dev/null || true)
+	;;
+esac
+
+case $url in
+http://*|https://*) ;;
+*)
+	# The clipboard is the reliable route: Ctrl+L then Ctrl+C in Chromium
+	# leaves the tab's URL on it, which also works where xdotool's synthetic
+	# keys do not reach the browser (the VM's wsfb server swallows them).
+	notify "download" "no URL found: copy the address bar (Ctrl+L, Ctrl+C) and press Super+Shift+D again"
+	exit 1
+	;;
+esac
+
+dir="$HOME/Videos/Downloads"
+mkdir -p "$dir" || exit 1
+
+if ! command -v yt-dlp >/dev/null 2>&1; then
+	notify "download" "yt-dlp is not installed"
+	exit 1
+fi
+
+# $0 = directory, $1 = URL for the inner shell.
+exec st -e sh -c '
+	dir=$0; url=$1
+	printf "downloading\n%s\n\n" "$url"
+	yt-dlp --no-playlist \
+		-f "bv*[height<=1080]+ba/b[height<=1080]/b" \
+		--merge-output-format mp4 \
+		-o "$dir/%(title)s.%(ext)s" \
+		--newline "$url"
+	status=$?
+	printf "\n-- finished (exit %s). press Enter to close --\n" "$status"
+	read -r _
+' "$dir" "$url"

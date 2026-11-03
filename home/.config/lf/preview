@@ -1,0 +1,92 @@
+#!/bin/sh
+# preview — lf previewer (r42 calls it as: preview file width height x y mode)
+#
+# Every branch is guarded: a missing helper degrades to a plain text/hex dump
+# instead of an error.  bat's "ansi" theme means highlighting follows the
+# st palette, so previews stay amber rather than dragging in Monokai.
+
+set -u
+
+f=${1:-}
+w=${2:-80}
+h=${3:-40}
+
+[ -n "$f" ] || exit 0
+[ -f "$f" ] || exit 0
+[ -r "$f" ] || { printf 'unreadable\n'; exit 0; }
+
+mime=$(file -bL --mime-type "$f" 2>/dev/null) || mime=
+
+case $mime in
+text/*|application/json|application/xml|application/x-shellscript|inode/x-empty)
+	if command -v bat >/dev/null 2>&1; then
+		exec bat --theme=ansi --style=plain --color=always --pager=never \
+		    --wrap=never --chop-long-lines --tabs 4 \
+		    --terminal-width "$w" "$f"
+	fi
+	exec sed -n "1,${h}p" "$f"
+	;;
+application/pdf)
+	if command -v pdftotext >/dev/null 2>&1; then
+		tmp=${TMPDIR:-/tmp}/lf-pdf.$$
+		trap 'rm -f "$tmp" "$tmp"-*.png' EXIT
+		pdftotext -f 1 -l 1 -layout "$f" "$tmp" 2>/dev/null
+		if [ -s "$tmp" ]; then
+			sed -n "1,${h}p" "$tmp"
+			exit 0
+		fi
+		# Scanned page: no text layer, so render the first page instead.
+		if command -v pdftoppm >/dev/null 2>&1 &&
+		    command -v chafa >/dev/null 2>&1; then
+			pdftoppm -f 1 -l 1 -r 60 -png "$f" "$tmp" 2>/dev/null
+			for img in "$tmp"-*.png; do
+				[ -f "$img" ] &&
+				    chafa --format symbols --colors full \
+					--size "${w}x${h}" "$img"
+			done
+			exit 0
+		fi
+	fi
+	;;
+image/*)
+	command -v chafa >/dev/null 2>&1 &&
+	    exec chafa --format symbols --colors full --size "${w}x${h}" "$f"
+	;;
+video/*)
+	if command -v ffmpegthumbnailer >/dev/null 2>&1 &&
+	    command -v chafa >/dev/null 2>&1; then
+		tmp=${TMPDIR:-/tmp}/lf-thumb.$$
+		trap 'rm -f "$tmp"' EXIT
+		if ffmpegthumbnailer -i "$f" -o "$tmp" -s 512 -q 6 >/dev/null 2>&1
+		then
+			chafa --format symbols --colors full \
+			    --size "${w}x${h}" "$tmp"
+			exit 0
+		fi
+	fi
+	;;
+application/zip)
+	command -v unzip >/dev/null 2>&1 &&
+	    { unzip -l "$f" 2>/dev/null | sed -n "1,${h}p"; exit 0; }
+	;;
+application/x-tar|application/gzip|application/x-bzip2|application/x-xz)
+	tar -tf "$f" 2>/dev/null | sed -n "1,${h}p"
+	exit 0
+	;;
+esac
+
+case $f in
+*.zip|*.jar)
+	if command -v unzip >/dev/null 2>&1; then
+		unzip -l "$f" 2>/dev/null | sed -n "1,${h}p"
+		exit 0
+	fi
+	;;
+*.tar|*.tar.gz|*.tgz|*.tar.bz2|*.tbz|*.tar.xz|*.txz|*.tar.zst|*.gz|*.xz|*.bz2)
+	tar -tf "$f" 2>/dev/null | sed -n "1,${h}p"
+	exit 0
+	;;
+esac
+
+printf '%s\n\n' "${mime:-unknown}"
+head -c 1024 "$f" 2>/dev/null | hexdump -C | sed -n "1,${h}p"

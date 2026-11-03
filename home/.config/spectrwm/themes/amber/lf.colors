@@ -1,0 +1,96 @@
+# amber — lf colours
+#
+# Whitespace-separated pairs (this is lf's colours file, not LS_COLORS; don't
+# write di=01;33 here).  Only ANSI indices are used, so the actual colours come
+# from st's amber palette (share/st/config.h) and stay in step with it.
+#
+# lf reads this file once at startup; :reload does not re-read it.
+
+# ── file types ───────────────────────────────────────────────────────────────
+ln      36
+or      01;31
+tw      01;31
+ow      01;31
+st      01;31
+di      01;33
+pi      33
+so      01;35
+bd      33;01
+cd      33;01
+su      01;32
+sg      01;32
+ex      01;32
+fi      00
+
+# ── directories worth spotting ───────────────────────────────────────────────
+.git/           90
+node_modules/   90
+
+# ── archives and packages ────────────────────────────────────────────────────
+*.tar           01;31
+*.tgz           01;31
+*.gz            01;31
+*.bz2           01;31
+*.xz            01;31
+*.zip           01;31
+*.7z            01;31
+*.rar           01;31
+*.iso           01;31
+
+# ── documents ────────────────────────────────────────────────────────────────
+*.pdf           01;31
+*.md            34
+*.txt           34
+*.rst           34
+*.org           34
+*.doc           33
+*.docx          33
+*.odt           33
+*.xls           33
+*.xlsx          33
+*.ods           33
+*.ppt           33
+*.pptx          33
+*.epub          33
+*.log           90
+
+# ── media ────────────────────────────────────────────────────────────────────
+*.png           01;35
+*.jpg           01;35
+*.jpeg          01;35
+*.gif           01;35
+*.webp          01;35
+*.svg           01;35
+*.mp4           35
+*.mkv           35
+*.webm          35
+*.avi           35
+*.mov           35
+*.mp3           36
+*.flac          36
+*.ogg           36
+*.wav           36
+*.m4a           36
+
+# ── code and configuration ───────────────────────────────────────────────────
+*.c             36
+*.h             36
+*.go            36
+*.rs            36
+*.py            36
+*.rb            36
+*.pl            36
+*.js            36
+*.ts            36
+*.css           36
+*.html          36
+*.sh            36
+*.conf          33
+*.toml          33
+*.yaml          33
+*.yml           33
+*.json          33
+*.ini           33
+*.sql           33
+Makefile        01;33
+README*         01;33

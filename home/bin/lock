@@ -1,0 +1,3 @@
+#!/bin/sh
+# lock — lock the X session (also used by xidle and /etc/apm/suspend).
+exec /usr/local/bin/slock "$@"

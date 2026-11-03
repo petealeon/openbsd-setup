@@ -1,0 +1,26 @@
+! ---------------------------------------------------------------------------
+!  ~/.Xresources — amber desktop kit
+!  Installed by theme-apply from themes/<name>/Xresources.
+! ---------------------------------------------------------------------------
+
+! 1920x1080 across 14 inches is ~157 dpi; 120 keeps text readable without
+! forcing GTK scaling on every application.
+Xft.dpi: 120
+
+! Cursor
+Xcursor.theme: Adwaita
+Xcursor.size: 24
+
+! Font rendering
+Xft.antialias: true
+Xft.hinting: true
+Xft.hintstyle: hintslight
+Xft.rgba: rgb
+
+! Classic X clients (xterm, xcalc, ...)
+*foreground:   #e6ded0
+*background:   #0f0e0c
+*cursorColor:  #ffb000
+*highlightColor: #ffb000
+*pointerColor: #ffb000
+*borderColor:  #2a241b

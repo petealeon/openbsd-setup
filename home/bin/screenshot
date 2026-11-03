@@ -1,0 +1,42 @@
+#!/bin/sh
+# screenshot [full|window|region]
+#
+# Saves a PNG under ~/Pictures/Screenshots, copies it to the clipboard and
+# shows a preview notification. Bound to Super+s / Super+Shift+s /
+# Super+Control+s.
+
+set -u
+
+dir="$HOME/Pictures/Screenshots"
+file="$dir/$(date '+%Y-%m-%d_%H.%M.%S').png"
+
+mkdir -p "$dir"
+
+case ${1:-full} in
+full)
+	maim "$file" || exit 1
+	;;
+window)
+	win=$(xdotool getactivewindow 2>/dev/null) || exit 1
+	maim -i "$win" "$file" || exit 1
+	;;
+region)
+	maim -s "$file" || exit 1
+	;;
+*)
+	echo "usage: ${0##*/} [full|window|region]" >&2
+	exit 1
+	;;
+esac
+
+[ -s "$file" ] || exit 1
+
+# Clipboard first, then a notification with a thumbnail.
+if command -v xclip >/dev/null 2>&1; then
+	xclip -selection clipboard -t image/png -i "$file" 2>/dev/null || true
+fi
+if command -v notify-send >/dev/null 2>&1; then
+	notify-send -a screenshot -i "$file" "screenshot" "${file##*/}"
+fi
+
+printf '%s\n' "$file"

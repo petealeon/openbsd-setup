@@ -1,0 +1,29 @@
+# Retro gaming, installed by the `gaming` stage (doas ./install.sh --only=gaming).
+#
+# This is the largest part of the setup: emulators and their dependencies need
+# roughly 3 GiB under /usr/local. The stage checks free space first and skips
+# with a clear message instead of leaving a half-installed RetroArch behind.
+#
+# Controllers: RetroArch talks to pads through /dev/uhid*, which
+# /etc/hotplug/attach re-owns for the desktop user as they are plugged in.
+
+retroarch
+sdl2
+sdl2-ttf
+libhidapi
+
+# libretro cores
+libretro-mgba
+libretro-nestopia
+libretro-genesis-plus-gx
+libretro-pcsx-rearmed
+libretro-ppsspp
+libretro-sameboy
+libretro-gambatte
+libretro-snes9x
+
+# standalone emulators for the systems that benefit from them
+snes9x
+mednafen
+scummvm
+dosbox-staging

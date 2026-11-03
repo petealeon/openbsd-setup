@@ -1,0 +1,19 @@
+#!/bin/sh
+# /etc/X11/xenodm/Xsetup_0 — runs before the xenodm login prompt.
+#
+# The stock OpenBSD file starts an xconsole window for /dev/xconsole. On a
+# tiling desktop that window is a black rectangle occupying the main slot, and
+# the user session cannot remove it: xenodm owns it as root/_x11, so pkill
+# from ~/.xsession is powerless. It is simply not started here.
+
+prefix="/usr/X11R6"
+exec_prefix="${prefix}"
+
+${exec_prefix}/bin/xsetroot -fg \#6f6f6f -bg \#bfbfbf \
+	-bitmap ${prefix}/include/X11/bitmaps/root_weave
+
+# If openbsd-backgrounds is installed, let it paint the root image. The user's
+# own wallpaper in ~/.xsession replaces it after login anyway.
+if test -x /usr/local/bin/openbsd-wallpaper; then
+	/usr/local/bin/openbsd-wallpaper
+fi

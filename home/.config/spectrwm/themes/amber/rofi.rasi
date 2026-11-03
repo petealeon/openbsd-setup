@@ -1,0 +1,124 @@
+/* ---------------------------------------------------------------------------
+   amber — rofi theme
+   Installed as ~/.config/rofi/colors.rasi by theme-apply.
+   Palette: near-black warm greys, amber focus, red for urgency.
+--------------------------------------------------------------------------- */
+
+* {
+    bg0:   #0f0e0c;
+    bg1:   #17140f;
+    bg2:   #201b14;
+    bg3:   #2a241b;
+    fg:    #e6ded0;
+    dim:   #8a8175;
+    amber: #ffb000;
+    red:   #d90d10;
+
+    background-color: transparent;
+    text-color:       @fg;
+    border:           0;
+    margin:           0;
+    padding:          0;
+    spacing:          0;
+}
+
+window {
+    background-color: @bg0;
+    border:           1px;
+    border-color:     @amber;
+    padding:          12px;
+    width:            44%;
+}
+
+mainbox {
+    children: [ inputbar, message, listview ];
+    spacing:  10px;
+}
+
+inputbar {
+    children:         [ prompt, entry ];
+    background-color: @bg1;
+    padding:          10px 12px;
+    spacing:          8px;
+}
+
+prompt {
+    text-color: @amber;
+}
+
+entry {
+    text-color:               @fg;
+    placeholder:              "type to filter";
+    placeholder-color:        @dim;
+    cursor:                   text;
+}
+
+listview {
+    lines:            10;
+    columns:          1;
+    scrollbar:        false;
+    fixed-height:     true;
+    background-color: transparent;
+}
+
+element {
+    padding: 8px 10px;
+    spacing: 10px;
+}
+
+element normal.normal {
+    background-color: transparent;
+    text-color:       @fg;
+}
+
+element normal.urgent {
+    background-color: transparent;
+    text-color:       @red;
+}
+
+element selected.normal {
+    background-color: @amber;
+    text-color:       @bg0;
+}
+
+element selected.urgent {
+    background-color: @red;
+    text-color:       @fg;
+}
+
+element-icon {
+    size:            22px;
+    background-color: transparent;
+}
+
+element-text {
+    background-color: transparent;
+    vertical-align:   0.5;
+}
+
+scrollbar {
+    handle-width:     2px;
+    handle-color:     @amber;
+    background-color: @bg2;
+}
+
+button {
+    padding:          6px 12px;
+    text-color:       @dim;
+    background-color: @bg1;
+}
+
+button selected {
+    background-color: @bg2;
+    text-color:       @amber;
+}
+
+message {
+    background-color: @bg1;
+    padding:          8px 12px;
+    text-color:       @dim;
+}
+
+textbox {
+    text-color: @fg;
+}

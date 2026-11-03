@@ -1,0 +1,103 @@
+#!/bin/sh
+# theme-apply [name] — apply ~/.config/spectrwm/themes/<name>
+#
+#   * splices <theme>/spectrwm.colors into ~/.spectrwm.conf between the
+#     ">>> theme colors >>>" and "<<< theme colors <<<" markers
+#   * installs rofi, dunst, Xresources, lf and zathura colours
+#   * installs the theme wallpaper and remembers the choice
+#   * live-reloads the running desktop when X is available
+#
+# st reads its palette at compile time from share/st/config.h, so switching
+# themes does not repaint open terminal windows: that is deliberate.
+
+set -eu
+
+themes="$HOME/.config/spectrwm/themes"
+conf="$HOME/.spectrwm.conf"
+name=${1:-}
+
+if [ -z "$name" ]; then
+	name=$(cat "$HOME/.cache/theme" 2>/dev/null || echo)
+fi
+if [ -z "$name" ]; then
+	echo "usage: ${0##*/} <theme>" >&2
+	echo "available:" >&2
+	for d in "$themes"/*/; do
+		[ -d "$d" ] && echo "  $(basename "$d")" >&2
+	done
+	exit 1
+fi
+
+dir="$themes/$name"
+[ -d "$dir" ] || {
+	echo "${0##*/}: no such theme: $name" >&2
+	exit 1
+}
+
+# ── spectrwm colour block ───────────────────────────────────────────────────
+if [ -f "$dir/spectrwm.colors" ] && [ -f "$conf" ]; then
+	tmp="$conf.theme-apply.$$"
+	awk -v colors="$dir/spectrwm.colors" '
+		/^# >>> theme colors >>>/ {
+			print;
+			while ((getline line < colors) > 0) print line;
+			skip = 1;
+			next
+		}
+		/^# <<< theme colors <<</ { skip = 0 }
+		!skip { print }
+	' "$conf" >"$tmp" && mv "$tmp" "$conf"
+fi
+
+# ── per-application files ───────────────────────────────────────────────────
+mkdir -p "$HOME/.config/rofi/themes" "$HOME/.config/dunst" \
+	"$HOME/.config/lf" "$HOME/.config/zathura" \
+	"$HOME/Pictures/wallpapers" "$HOME/.cache"
+
+[ -f "$dir/rofi.rasi" ] && install -m 644 "$dir/rofi.rasi" \
+	"$HOME/.config/rofi/themes/$name.rasi"
+[ -f "$dir/dunstrc" ] && install -m 644 "$dir/dunstrc" \
+	"$HOME/.config/dunst/dunstrc"
+[ -f "$dir/Xresources" ] && install -m 644 "$dir/Xresources" \
+	"$HOME/.Xresources"
+[ -f "$dir/lf.colors" ] && install -m 644 "$dir/lf.colors" \
+	"$HOME/.config/lf/colors"
+[ -f "$dir/zathurarc" ] && install -m 644 "$dir/zathurarc" \
+	"$HOME/.config/zathura/zathurarc"
+[ -f "$dir/wallpaper.png" ] && install -m 644 "$dir/wallpaper.png" \
+	"$HOME/Pictures/wallpapers/$name.png"
+
+# Point rofi at the new palette (config.rasi holds the @theme line).
+if [ -f "$HOME/.config/rofi/config.rasi" ]; then
+	tmp="$HOME/.config/rofi/config.rasi.theme-apply.$$"
+	sed "s|^@theme .*|@theme \"$name\"|" \
+		"$HOME/.config/rofi/config.rasi" >"$tmp" &&
+		mv "$tmp" "$HOME/.config/rofi/config.rasi"
+fi
+
+printf '%s\n' "$name" >"$HOME/.cache/theme"
+
+# ── live reload ─────────────────────────────────────────────────────────────
+[ -n "${DISPLAY:-}" ] || exit 0
+
+xrdb -merge "$HOME/.Xresources" 2>/dev/null || true
+
+if command -v dunstctl >/dev/null 2>&1; then
+	dunstctl reload >/dev/null 2>&1 || true
+elif pgrep -x dunst >/dev/null 2>&1; then
+	pkill -x dunst 2>/dev/null || true
+	dunst >/dev/null 2>&1 &
+fi
+
+if [ -f "$HOME/Pictures/wallpapers/$name.png" ] &&
+	command -v feh >/dev/null 2>&1; then
+	feh --no-fehbg --bg-fill "$HOME/Pictures/wallpapers/$name.png" \
+		>/dev/null 2>&1 || true
+fi
+
+# spectrwm only re-reads its config on its own reload binding.
+if command -v xdotool >/dev/null 2>&1; then
+	xdotool key --clearmodifiers super+ctrl+r 2>/dev/null || true
+else
+	echo "${0##*/}: press Super+Control+R to reload spectrwm" >&2
+fi

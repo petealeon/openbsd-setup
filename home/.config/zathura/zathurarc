@@ -1,0 +1,40 @@
+# ~/.config/zathura/zathurarc — amber desktop kit
+#
+# Written by `theme-apply` from themes/<name>/zathurarc.  Colours here are
+# quoted because '#' starts a comment in this file.
+
+set default-bg               "#0f0e0c"
+set default-fg               "#e6ded0"
+set render-loading-bg        "#0f0e0c"
+set render-loading-fg        "#8a8175"
+
+set statusbar-bg             "#17140f"
+set statusbar-fg             "#8a8175"
+set inputbar-bg              "#17140f"
+set inputbar-fg              "#e6ded0"
+
+set notification-bg          "#17140f"
+set notification-fg          "#e6ded0"
+set notification-error-bg    "#d90d10"
+set notification-error-fg    "#0f0e0c"
+set notification-warning-bg  "#ffb000"
+set notification-warning-fg  "#0f0e0c"
+
+set completion-bg            "#17140f"
+set completion-fg            "#e6ded0"
+set completion-highlight-bg  "#ffb000"
+set completion-highlight-fg  "#0f0e0c"
+set completion-group-bg      "#0f0e0c"
+set completion-group-fg      "#8a8175"
+
+set index-bg                 "#17140f"
+set index-fg                 "#8a8175"
+set index-active-bg          "#ffb000"
+set index-active-fg          "#0f0e0c"
+
+set highlight-color          "rgba(255,176,0,0.45)"
+set highlight-active-color   "#ffb000"
+
+set font                     "BlexMono Nerd Font 11"
+set scroll-step              100
+set guioptions               ""

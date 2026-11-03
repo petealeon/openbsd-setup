@@ -1,22 +1,108 @@
+# Packages installed by install.sh. Blank lines and lines starting with
+# '#' are stripped before pkg_add sees the list.
+#
+# Keep stems, not versions: a pinned package breaks the next `pkg_add -u`.
+# If a stem matches more than one package, pin it with the empty-version form
+# (rsync--, unzip--) and note why next to it.
+
+# X11 desktop
 spectrwm
+chromium
+picom
+dunst
+rofi
 dmenu
-firefox
+feh
+xclip
+xsel
+clipmenu
+clipnotify
+xdotool
+wmctrl
+xbanish
+slock
+maim
+slop
+scrot
+nsxiv
+chafa
+redshift
+dbus
+libnotify
+adwaita-icon-theme
+papirus-icon-theme
+gtk+3
+gtk+4
+obsdfreqd
+
+# Building st. xenocara already ships the X11/Xft, freetype and fontconfig
+# headers and libraries (freetype and fontconfig are no longer packages on
+# OpenBSD 8.0), so the only build tool missing from base is gmake: st's
+# Makefile uses $(shell ...), which base make does not support.
+gmake
+# pkg-config itself is in OpenBSD base (/usr/bin/pkg-config)
+
+# Fonts
+noto-fonts
+noto-emoji
+noto-nerd-fonts
+dejavusansmono-nerd-fonts
+jetbrains-mono
+terminus-nerd-fonts
+
+# TUI and shell tools
+neovim
+# tmux is part of the OpenBSD base system (7.6+): no package needed
 git
-rsync-3.5.1
 curl
 wget
-neovim
-htop
+aria2
+rsync--minimal
 jq
-ripgrep
-fd
-fzf
 tree
-xclip
-feh
-maim
-scrot
-noto-fonts
-liberation-fonts
-picom
-xdotool
+ncdu
+bat
+eza
+fd
+ripgrep
+fzf
+nnn--nerd
+ranger
+btop
+htop
+newsboat
+tig
+unzip--iconv
+zip
+lf
+zathura
+zathura-pdf-poppler
+poppler-utils
+keepassxc--browser
+
+# Music and media
+mpd
+ncmpcpp
+mpc
+ffmpeg
+flac
+opus-tools
+mpv
+yt-dlp
+# deno is yt-dlp's JavaScript runtime: YouTube's player needs one to solve its
+# challenges, and yt-dlp auto-detects deno on PATH. Without it YouTube
+# extraction is deprecated and many videos come back "unavailable".
+deno
+ffmpegthumbnailer
+
+# A little fun
+cowsay
+figlet
+toilet
+asciiquarium
+cmatrix
+sl
+
+# Deliberately not installed:
+#   sndiokeys — it would adjust the mixer a second time for every press of the
+#               XF86 volume keys, which ~/.spectrwm.conf already binds.

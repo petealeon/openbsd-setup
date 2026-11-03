@@ -1,0 +1,13 @@
+#!/bin/sh
+# keybinds — show the active spectrwm bindings in rofi (Super+Shift+/)
+
+set -u
+
+conf=${SPECTRWM_CONF:-$HOME/.spectrwm.conf}
+[ -f "$conf" ] || exit 1
+
+sed -n 's/^[[:space:]]*bind\[\([^]]*\)\][[:space:]]*=[[:space:]]*\(.*\)$/\1|\2/p' \
+	"$conf" |
+	awk -F'|' '$2 != "" { printf "%-26s  %s\n", $2, $1 }' |
+	rofi -dmenu -i -p 'keybindings' -no-custom -mesg \
+	'Super = Mod4. Bindings from ~/.spectrwm.conf; defaults (Super+1..0, etc.) still apply.'

@@ -1,0 +1,4 @@
+#!/bin/sh
+# /etc/apm/suspend — lock the screen before the machine sleeps.
+# xidle handles SIGUSR1 by firing its lock program immediately.
+pkill -USR1 xidle 2>/dev/null || true

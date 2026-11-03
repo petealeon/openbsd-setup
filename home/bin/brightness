@@ -1,0 +1,66 @@
+#!/bin/sh
+# brightness [up|down|set] [percent]
+#
+# T480s backlight through wsconsctl, which needs the doas rule from
+# etc/doas.conf:
+#
+#     permit nopass :wheel cmd /sbin/wsconsctl
+#
+# If the panel does not expose display.brightness (or doas is not configured)
+# it falls back to a software gamma dim so the keys still do something.
+
+set -u
+
+action=${1:-up}
+step=${2:-5}
+state="${XDG_RUNTIME_DIR:-/tmp}/.brightness.$(id -u)"
+
+cur_level() {
+	lvl=$(doas /sbin/wsconsctl -n display.brightness 2>/dev/null | sed -n 1p)
+	case $lvl in ''|*[!0-9]*) lvl= ;; esac
+	printf '%s' "$lvl"
+}
+
+gamma_fallback() {
+	cur=$(cat "$state" 2>/dev/null)
+	case $cur in ''|*[!0-9]*) cur=100 ;; esac
+	case $action in
+	up)   new=$((cur + step)) ;;
+	down) new=$((cur - step)) ;;
+	set)  new=$step ;;
+	esac
+	[ "$new" -gt 100 ] && new=100
+	[ "$new" -lt 10 ] && new=10
+	mkdir -p "$(dirname "$state")" 2>/dev/null || true
+	printf '%s\n' "$new" >"$state"
+	out=$(xrandr --query 2>/dev/null |
+		sed -n 's/^\([^ ]*\) connected.*/\1/p' | sed -n 1p)
+	[ -n "$out" ] || return 1
+	brightness=$(awk -v n="$new" 'BEGIN { printf "%.2f", 0.35 + 0.65 * n / 100 }')
+	xrandr --output "$out" --brightness "$brightness" || return 1
+}
+
+lvl=$(cur_level)
+
+if [ -z "$lvl" ]; then
+	gamma_fallback || { echo "${0##*/}: no backlight and no RandR output" >&2; exit 1; }
+	pct=$(cat "$state" 2>/dev/null)
+else
+	case $action in
+	up)   pct=$((lvl + step)) ;;
+	down) pct=$((lvl - step)) ;;
+	set)  pct=$step ;;
+	*)
+		echo "usage: ${0##*/} [up|down|set] [percent]" >&2
+		exit 1
+		;;
+	esac
+	[ "$pct" -gt 100 ] && pct=100
+	[ "$pct" -lt 0 ] && pct=0
+	doas /sbin/wsconsctl "display.brightness=$pct" >/dev/null || exit 1
+fi
+
+if command -v notify-send >/dev/null 2>&1; then
+	notify-send -a brightness -h string:x-dunst-stack-tag:brightness \
+		-h "int:value:$pct" "brightness" "$pct%"
+fi

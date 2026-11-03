@@ -1,0 +1,23 @@
+#!/bin/sh
+# files [dir] — open lf in st, resuming the last directory.
+#
+# lf writes the directory it quits from to ~/.cache/lf/lastdir, so the next
+# window picks up where you left off.
+
+set -u
+
+last="$HOME/.cache/lf/lastdir"
+
+if [ $# -gt 0 ]; then
+	dir=$1
+elif [ -r "$last" ]; then
+	dir=$(cat "$last")
+else
+	dir=$HOME
+fi
+
+[ -d "$dir" ] || dir=$HOME
+
+mkdir -p "${last%/*}" 2>/dev/null || true
+
+exec st -e lf -last-dir-path "$last" "$dir"

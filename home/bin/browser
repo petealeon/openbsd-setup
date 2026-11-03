@@ -1,0 +1,15 @@
+#!/bin/sh
+# browser — start Chromium the way this desktop wants it.
+#
+# A fresh profile shows the "Chromium Additional Terms of Service" dialog on
+# first run; there is no policy for it, and --no-first-run is the only way to
+# skip it. Everything else the browser stage configures (uBlock Origin Lite,
+# no bookmarks bar, no default-browser nag) is managed policy in
+# /etc/chromium/policies/managed/amber.json.
+
+set -u
+
+chrome=$(command -v chrome 2>/dev/null) || chrome=/usr/local/bin/chrome
+[ -x "$chrome" ] || { echo "browser: chrome is not installed" >&2; exit 1; }
+
+exec "$chrome" --no-first-run "$@"

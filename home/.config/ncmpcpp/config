@@ -1,0 +1,57 @@
+# ~/.config/ncmpcpp/config — amber desktop
+#
+# ncmpcpp is the music front end: playlist, library browser, visualizer,
+# lyrics and a spectrum display, all driven from the keyboard. mpd runs as a
+# per-user daemon (see ~/.config/mpd/mpd.conf and `music`).
+
+ncmpcpp_directory = "~/.local/share/ncmpcpp"
+mpd_music_dir = "~/Music"
+mpd_host = "127.0.0.1"
+mpd_port = "6600"
+mpd_connection_timeout = "5"
+
+# ── interface ───────────────────────────────────────────────────────────────
+user_interface = "alternative"
+startup_screen = "playlist"
+mouse_support = "yes"
+autocenter_mode = "yes"
+follow_now_playing_lyrics = "yes"
+display_bitrate = "yes"
+external_editor = "nvim"
+playlist_disable_highlight_delay = "0"
+progressbar_look = "─╼"
+now_playing_prefix = "▶ "
+now_playing_suffix = ""
+alternative_header_first_line_format = "$b$1$aqqu$/a$9 {%t}|{%f}$/b$/$b$2$aqqu$/a$9 $3$/b"
+alternative_header_second_line_format = "{{$4$b%a$/b$9}{ - $7%b$9}{ ($4%y$9)}}|{%D}"
+
+# ── colours ─────────────────────────────────────────────────────────────────
+# ANSI names only, so the palette follows st's amber config.h.
+colors_enabled = "yes"
+empty_tag_color = "black"
+header_window_color = "yellow"
+volume_color = "green"
+state_line_color = "yellow"
+state_flags_color = "yellow"
+main_color = "white"
+color1 = "white"
+color2 = "yellow"
+color3 = "green"
+color4 = "green"
+color5 = "yellow"
+color6 = "white"
+color7 = "yellow"
+
+# ── visualizer ──────────────────────────────────────────────────────────────
+visualizer_type = "spectrum"
+visualizer_fps = "60"
+visualizer_autoscale = "1"
+visualizer_look = "●▮"
+visualizer_color = "yellow,green,white"
+
+# ── lyrics and extras ───────────────────────────────────────────────────────
+lyrics_directory = "~/.local/share/lyrics"
+show_hidden_files_in_local_browser = "no"
+media_library_primary_tag = "album_artist"
+media_library_albums_split_by_date = "no"
+display_remaining_time = "yes"

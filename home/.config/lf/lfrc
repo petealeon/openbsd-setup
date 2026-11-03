@@ -1,0 +1,32 @@
+# ~/.config/lf/lfrc — amber desktop, st terminal
+#
+# lf r42.  Options live here; the palette is in ~/.config/lf/colors (written by
+# theme-apply) and the icon set in ~/.config/lf/icons.
+#
+# Enter on a file runs ~/.config/lf/open: mg for text, feh for images, zathura
+# for PDFs, xdg-open for everything else.  Directories are opened by lf itself
+# and never reach that command.
+
+set shell sh
+
+# ── look ─────────────────────────────────────────────────────────────────────
+set drawbox true
+set dirpreviews true
+set icons true
+set scrolloff 5
+set ratios 1:2:3
+set info size:time
+set tabstop 4
+set period 2
+set promptfmt "\033[90m%u@%h\033[0m \033[33;1m%d\033[0m\033[1m%f\033[0m"
+
+# ── searching ────────────────────────────────────────────────────────────────
+set ignorecase true
+set smartcase true
+set incsearch true
+
+# ── previews ─────────────────────────────────────────────────────────────────
+set previewer ~/.config/lf/preview
+
+# ── opening files ────────────────────────────────────────────────────────────
+cmd open &~/.config/lf/open $fx

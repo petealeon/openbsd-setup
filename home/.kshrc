@@ -1,10 +1,32 @@
-# ~/.kshrc
+# ~/.kshrc - interactive ksh.
 set -o emacs
 PS1='\u@\h:\w\$ '
 export HISTFILE="$HOME/.ksh_history"
 export HISTSIZE=10000
 
-alias ll='ls -lh'
-alias la='ls -A'
+alias ls='eza --color=auto'
+alias ll='eza -lah --git'
+alias la='eza -lah'
+alias lt='eza --tree --level=2'
+alias cat='bat --paging=never'
+alias grep='grep --color=auto'
+alias vi='nvim'
+alias vim='nvim'
+alias top='btop'
+alias music='music'
+alias games='games'
+alias art='music'
+alias now='mpc current'
+alias pause='mpc toggle'
+alias next='mpc next'
+alias prev='mpc prev'
 alias ..='cd ..'
 alias ...='cd ../..'
+alias df='df -h'
+alias du='du -h'
+alias mv='mv -i'
+alias rm='rm -i'
+alias hist='fc -l 1'
+alias keys='keybinds'
+alias walk='lf'
+alias wttr='curl -s wttr.in/?format=3'

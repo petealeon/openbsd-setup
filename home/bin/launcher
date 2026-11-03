@@ -1,0 +1,49 @@
+#!/bin/sh
+# launcher — rofi command centre (Super+space)
+#
+# `launcher drun` jumps straight to the application list.
+
+set -u
+
+drun() {
+	exec rofi -show drun -show-icons
+}
+
+[ "${1:-}" = drun ] && drun
+
+choice=$(printf '%s\n' \
+	'apps' \
+	'windows' \
+	'files' \
+	'music' \
+	'games' \
+	'download video' \
+	'keybindings' \
+	'screenshot region' \
+	'lock' \
+	'night light' \
+	'reload spectrwm' \
+	'suspend' \
+	'reboot' \
+	'power off' \
+	'log out' |
+	rofi -dmenu -i -p '›' -no-custom)
+
+case $choice in
+apps)            rofi -show drun -show-icons ;;
+windows)         rofi -show window -show-icons ;;
+files)           "$HOME/bin/files" ;;
+music)           "$HOME/bin/music" ;;
+games)           "$HOME/bin/games" ;;
+'download video') "$HOME/bin/video-download" ;;
+keybindings)     "$HOME/bin/keybinds" ;;
+'screenshot region') "$HOME/bin/screenshot region" ;;
+lock)            "$HOME/bin/lock" ;;
+'night light')   "$HOME/bin/nightlight toggle" ;;
+'reload spectrwm') xdotool key --clearmodifiers super+ctrl+r ;;
+suspend)         doas /usr/sbin/zzz ;;
+reboot)          doas /sbin/reboot ;;
+'power off')     doas /sbin/shutdown -p now ;;
+'log out')       pkill -TERM spectrwm ;;
+'')              exit 0 ;;
+esac
