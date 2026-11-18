@@ -18,14 +18,15 @@ stage_desktop() {
 	run_shell "chmod 755 '$GUEST_HOME/.config/spectrwm/bar.sh' '$GUEST_HOME/.config/lf/open' '$GUEST_HOME/.config/lf/preview'"
 
 	# ── user directories ─────────────────────────────────────────────────
-	for d in Music Videos/Downloads Pictures/Screenshots Games \
+	for d in Music Videos/Downloads Pictures/Screenshots Games/roms Games/bios \
 		.local/share/mpd/playlists .local/share/ncmpcpp .local/share/lyrics \
-		.cache/lf .config/zathura; do
+		.cache/lf .config/zathura .config/retroarch/saves .config/retroarch/states; do
 		run mkdir -p "$GUEST_HOME/$d"
 	done
 	run chown -R "$GUEST_USER:$GUEST_USER" \
 		"$GUEST_HOME/Music" "$GUEST_HOME/Videos" "$GUEST_HOME/Pictures" \
-		"$GUEST_HOME/Games" "$GUEST_HOME/.local" "$GUEST_HOME/.cache"
+		"$GUEST_HOME/Games" "$GUEST_HOME/.local" "$GUEST_HOME/.cache" \
+		"$GUEST_HOME/.config/retroarch" 2>/dev/null || true
 
 	# spectrwm does not expand $HOME in bar_action (or in the program[] paths
 	# it execs), so the repo keeps $HOME for readability and the installer

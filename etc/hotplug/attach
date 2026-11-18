@@ -1,0 +1,14 @@
+#!/bin/sh
+# /etc/hotplug/attach - called by hotplugd(8) as: attach <class> <name>
+#
+# Give the active console user access to USB HID devices (gamepads/joysticks
+# appear as /dev/uhidN) so RetroArch/SDL2 can open them without root.
+
+case "$1" in
+uhid|uhidev)
+	dev="/dev/$2"
+	owner=$(stat -f '%Su' /dev/console 2>/dev/null) || owner=root
+	chown "$owner":wheel "$dev" 2>/dev/null || true
+	chmod 0660 "$dev" 2>/dev/null || true
+	;;
+esac

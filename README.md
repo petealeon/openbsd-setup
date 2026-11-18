@@ -14,20 +14,25 @@ run `installboot` against it, or write disk images to it. The VM disk lives at
 
 | Path | Purpose |
 |---|---|
-| `etc/` | portable `/etc` overlay |
+| `etc/` | portable `/etc` overlay (sshd/pf/doas/chromium policy, xenodm, unwind, hotplug, apm) |
 | `etc-vm/` | VM-only (`vio0`, serial console, root SSH) |
 | `etc-hardware/` | T480s-only (`iwm0`, `em0`, wscons) |
-| `home/` | dotfiles, `bin/` helpers, amber theme, wallpapers |
+| `home/` | dotfiles, `bin/` helpers, amber theme, wallpapers, RetroArch defaults |
 | `lib/stages/` | one script per install stage (`system`, `packages`, `terminal`, `desktop`, `browser`, `gaming`, `validate`) |
 | `share/st/` | pinned st source config, patches, `build.sh` |
 | `share/fonts/` | BlexMono Nerd Font + licence (vendored) |
+| `share/unwind/` | seed DNS blocklist for unwind |
 | `packages.txt` | packages (stems only, no pinned versions) |
+| `packages-gaming.txt` | emulators/cores (installed by the space-aware `gaming` stage) |
 | `packages-vm.txt` | VM-only packages (intentionally empty, see below) |
 | `install.sh` | the one front door: stages, `--dry-run`, `--only=` |
 | `provision.sh` | compatibility wrapper around `install.sh` |
 | `validate.sh` | `sshd -t`, `pfctl -n`, `doas -C`, shell syntax |
 | `vm` | host-side VM and config CLI |
 | `docs/install.conf.vm` | untested draft autoinstall response file |
+| `docs/wayland-ml4w-plan.md` | plan for a Wayland/ML4W-class desktop (not implemented) |
+| `docs/x11-ml4w-plan.md` | how far the X11 path goes toward ML4W, and why (not implemented) |
+| `docs/manual-install.md` | step-by-step manual install: Windows 11 dual-boot, packages, every config file, plan phases X1–X5 |
 
 ## Host prep (Omarchy)
 
@@ -217,13 +222,13 @@ doas ./install.sh --metal
 ```
 
 `install.sh` walks idempotent stages: `system` (syspatch, fw_update, the
-`etc-hardware/` overlay, xenodm/apmd/hotplugd), `packages` (`pkg_add`),
-`terminal` (builds st 0.9.2 and installs BlexMono), `desktop` (dotfiles, amber
-theme, wallpapers, `~/bin`), `browser` (Chromium policy and adblocker),
-`gaming` (emulators, its own stage because it needs ~3 GiB in `/usr/local`) and
-`validate`. Re-running it after editing the
-repo is the normal workflow; anything it replaces is first copied to
-`~/.config-backup-<timestamp>/`.
+`etc`/hardware overlay, xenodm/apmd/hotplugd + unwind/resolvd DNS backstop),
+`packages` (`pkg_add`), `terminal` (builds st 0.9.2 and installs BlexMono),
+`desktop` (dotfiles, amber theme, wallpapers, `~/bin`), `browser` (Chromium
+policy and adblocker), `gaming` (emulators/RetroArch defaults, its own stage
+because it needs ~3 GiB in `/usr/local`) and `validate`. Re-running it after
+editing the repo is the normal workflow; anything it replaces is first copied
+to `~/.config-backup-<timestamp>/`.
 
 Useful variants:
 
@@ -285,6 +290,28 @@ clipboard route and the download itself are verified.
 to solve its challenges; without it yt-dlp reports most videos as
 "unavailable". Verified on OpenBSD 8.0: a YouTube URL downloads and muxes to
 mp4 with the bundled `ffmpeg`.
+
+## DNS, music, gaming
+
+Adblocking is layered: the browser uses the managed uBlock Origin Lite policy,
+and `system` enables **unwind** (validating resolver) with a local blocklist
+(`/var/db/unwind.block`, seeded from `share/unwind/`) and points
+`/etc/resolv.conf` at `127.0.0.1` (with `resolvd` learning upstreams). Refresh
+the list with `doas ~/bin/update-blocklist` (network required).
+
+Music is per-user **mpd** (sndio) + **ncmpcpp**: `~/.config/mpd/mpd.conf`,
+library in `~/Music`, started from `~/.xsession`; `Super+Shift+M` opens
+`~/bin/music`.
+
+Retro gaming is installed by `--only=gaming` when space allows: RetroArch +
+cores/standalone emulators, a default `~/.config/retroarch/retroarch.cfg`
+(SDL2/sndio, autoconfig on), and ROM/BIOS layout under
+`~/Games/roms/<system>/` and `~/Games/bios/` (`Super+Shift+G` → `~/bin/games`).
+**Wired Xbox One/Series controllers** should work immediately when plugged in:
+`/etc/hotplug/attach` (run by `hotplugd`) chowns `/dev/uhid*` to the console
+user, and RetroArch/SDL2 use SDL's built-in gamecontroller mappings with
+autoconfig enabled. Verify pad detection and per-title tweaks on real hardware
+(VM USB passthrough is the rehearsal path).
 
 ## Gotchas worth remembering
 

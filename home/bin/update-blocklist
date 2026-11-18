@@ -1,0 +1,44 @@
+#!/bin/sh
+# update-blocklist — refresh /var/db/unwind.block for unwind(8).
+#
+# Fetches a domains-only ad/tracker list and installs it as unwind's block
+# list (one domain per line). Run as root: doas ~/bin/update-blocklist
+# Requires network access and curl/ftp.
+
+set -eu
+
+URL=${UNWIND_BLOCKLIST_URL:-https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts}
+OUT=/var/db/unwind.block
+TMP=$(mktemp "${TMPDIR:-/tmp}/unwind.block.XXXXXX") || exit 1
+trap 'rm -f "$TMP" "$TMP.raw"' EXIT
+
+fetch() {
+	if command -v ftp >/dev/null 2>&1; then
+		ftp -o "$TMP.raw" "$URL"
+	else
+		curl -fsSL -o "$TMP.raw" "$URL"
+	fi
+}
+
+echo "fetching blocklist..."
+fetch || { echo "fetch failed" >&2; exit 1; }
+
+# Accept either a hosts file (0.0.0.0 domain) or a plain domain list.
+awk '
+	/^[[:space:]]*#/ || /^[[:space:]]*$/ { next }
+	$1 == "0.0.0.0" || $1 == "127.0.0.1" { print $2; next }
+	/^[0-9a-zA-Z._-]+$/ { print $0 }
+' "$TMP.raw" | tr 'A-Z' 'a-z' | sed '/^localhost$/d;/^localhost.localdomain$/d;/^local$/d;/^broadcasthost$/d;/^ip6-.*/d;/^\.$/d' | sort -u > "$TMP"
+
+if [ ! -s "$TMP" ]; then
+	echo "refusing to install an empty blocklist" >&2
+	exit 1
+fi
+
+install -m 644 -o root -g wheel "$TMP" "$OUT"
+count=$(wc -l < "$OUT" | tr -d ' ')
+echo "installed $count domains to $OUT"
+
+if command -v rcctl >/dev/null 2>&1; then
+	rcctl reload unwind >/dev/null 2>&1 || rcctl restart unwind >/dev/null 2>&1 || true
+fi

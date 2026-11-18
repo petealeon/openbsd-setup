@@ -131,7 +131,8 @@ capture)
 		etc/doas.conf etc/installurl etc/pf.conf etc/sysctl.conf \
 		etc/myname etc/hostname.vio0 etc/boot.conf etc/ttys \
 		etc/wsconsctl.conf etc/ssh/sshd_config etc/ssh/sshd_config.d \
-		etc/X11 etc/rc.conf.local \
+		etc/X11 etc/rc.conf.local etc/unwind.conf etc/hotplug etc/apm \
+		etc/chromium \
 		home/peter/.profile home/peter/.kshrc home/peter/.xsession \
 		home/peter/.spectrwm.conf home/peter/.Xresources \
 		home/peter/.tmux.conf home/peter/.gitconfig home/peter/.config \

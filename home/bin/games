@@ -1,38 +1,61 @@
 #!/bin/sh
 # games — RetroArch launcher (Super+Shift+G)
 #
-# Layout: ~/Games/<system>/roms/*, one directory per console.  Pick a system
-# from the menu and the first ROM is passed to RetroArch with the matching
-# libretro core; pick "RetroArch" to land in its own menu instead.
+# Layout: ~/Games/roms/<system>/* (preferred), with compatibility for the
+# older ~/Games/<system>/roms/* layout.  Pick a system from the menu and the
+# first ROM is passed to RetroArch with the matching libretro core; pick
+# "RetroArch" to land in its own menu instead.
 #
-# Cores come from the libretro-* packages in packages.txt and live in
-# /usr/local/lib/libretro on OpenBSD.
+# Cores come from the libretro-* packages and live in /usr/local/lib/libretro
+# on OpenBSD.
 
 set -u
 
-roms="$HOME/Games"
+romroot="$HOME/Games/roms"
+games="$HOME/Games"
 libretro="${LIBRETRO_DIR:-/usr/local/lib/libretro}"
 
 core_for() {
 	case $1 in
-	megadrive|genesis|mastersystem|gamegear) echo genesis_plus_gx ;;
-	snes|supernintendo)                      echo snes9x ;;
-	nes|famicom)                             echo nestopia ;;
-	gameboy|gb|gbc)                          echo gambatte ;;
-	gba)                                     echo mgba ;;
-	psx|playstation)                         echo pcsx_rearmed ;;
-	psp)                                     echo ppsspp ;;
-	*)                                       echo ;;
+	megadrive|genesis|md|mastersystem|gamegear|sms|gg) echo genesis_plus_gx ;;
+	snes|sfc|supernintendo)                            echo snes9x ;;
+	nes|famicom|fc)                                    echo nestopia ;;
+	gameboy|gb|gbc)                                    echo gambatte ;;
+	gba)                                               echo mgba ;;
+	psx|ps1|playstation)                               echo pcsx_rearmed ;;
+	psp)                                               echo ppsspp ;;
+	*)                                                 echo ;;
 	esac
 }
 
-systems=$(
-	if [ -d "$roms" ]; then
-		for d in "$roms"/*/; do
-			[ -d "$d" ] || continue
-			basename "$d"
-		done
+dir_for() {
+	sys=$1
+	if [ -d "$romroot/$sys" ]; then
+		echo "$romroot/$sys"
+	elif [ -d "$games/$sys/roms" ]; then
+		echo "$games/$sys/roms"
+	else
+		echo "$games/$sys"
 	fi
+}
+
+systems=$(
+	{
+		if [ -d "$romroot" ]; then
+			for d in "$romroot"/*/; do
+				[ -d "$d" ] || continue
+				basename "$d"
+			done
+		fi
+		if [ -d "$games" ]; then
+			for d in "$games"/*/; do
+				[ -d "$d" ] || continue
+				b=$(basename "$d")
+				[ "$b" = roms ] || [ "$b" = bios ] && continue
+				echo "$b"
+			done
+		fi
+	} | awk '!seen[$0]++'
 )
 
 choice=$(printf '%s\n' "RetroArch" $systems |
@@ -44,16 +67,16 @@ if [ "$choice" = RetroArch ]; then
 	exec retroarch
 fi
 
-dir="$roms/$choice/roms"
-[ -d "$dir" ] || dir="$roms/$choice"
-rom=$(find "$dir" -type f \( -iname '*.zip' -o -iname '*.sfc' -o -iname '*.smc' \
-	-o -iname '*.nes' -o -iname '*.gba' -o -iname '*.gb' -o -iname '*.gbc' \
-	-o -iname '*.md' -o -iname '*.gen' -o -iname '*.bin' -o -iname '*.cue' \
-	-o -iname '*.iso' -o -iname '*.chd' -o -iname '*.pbp' \) 2>/dev/null |
-	sed -n 1p)
+dir=$(dir_for "$choice")
+rom=$(find "$dir" -type f \( -iname '*.zip' -o -iname '*.7z' -o -iname '*.sfc' \
+	-o -iname '*.smc' -o -iname '*.nes' -o -iname '*.gba' -o -iname '*.gb' \
+	-o -iname '*.gbc' -o -iname '*.md' -o -iname '*.gen' -o -iname '*.sms' \
+	-o -iname '*.gg' -o -iname '*.bin' -o -iname '*.cue' -o -iname '*.iso' \
+	-o -iname '*.chd' -o -iname '*.pbp' -o -iname '*.cso' \) 2>/dev/null |
+	sort | sed -n 1p)
 
 [ -n "$rom" ] || {
-	notify-send -a games "games" "no ROM found in ${dir##*/}" 2>/dev/null || true
+	notify-send -a games "games" "no ROM found in $dir" 2>/dev/null || true
 	exit 1
 }
 

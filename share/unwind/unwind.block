@@ -1,0 +1,2 @@
+# Seed block list for unwind(8). One domain per line; lines starting with '.'
+# block the whole zone. Regenerate with: ~/bin/update-blocklist

@@ -29,7 +29,11 @@ stage_system() {
 	if [ -f /etc/ssh/sshd_config ]; then
 		run chmod 600 /etc/ssh/sshd_config
 	fi
+	if [ -f /etc/unwind.conf ]; then
+		run chmod 644 /etc/unwind.conf
+	fi
 	run_shell "find /etc/ssh/sshd_config.d -type f -exec chmod 600 {} + 2>/dev/null || true"
+	run_shell "find /etc/hotplug -type f -exec chmod 755 {} + 2>/dev/null || true"
 
 	# ── sshd drop-in include ─────────────────────────────────────────────
 	if ! grep -q 'sshd_config.d' /etc/ssh/sshd_config 2>/dev/null; then
@@ -43,9 +47,25 @@ stage_system() {
 	run rcctl enable xenodm
 	run rcctl enable apmd
 	run rcctl enable hotplugd
+	if [ -x /etc/rc.d/unwind ]; then
+		run rcctl enable unwind
+	fi
+	if [ -x /etc/rc.d/resolvd ]; then
+		run rcctl enable resolvd
+	fi
 	if [ -x /etc/rc.d/obsdfreqd ]; then
 		run rcctl enable obsdfreqd
 		run rcctl start obsdfreqd || true
+	fi
+
+	# Seed the DNS blocklist and wire unwind as the local resolver (best effort).
+	if [ -f "$REPO/share/unwind/unwind.block" ] && [ ! -s /var/db/unwind.block ]; then
+		run install -m 644 -o root -g wheel "$REPO/share/unwind/unwind.block" /var/db/unwind.block
+	fi
+	if [ -f /etc/unwind.conf ]; then
+		run_shell "printf 'nameserver 127.0.0.1\n' >/etc/resolv.conf"
+		run rcctl start resolvd 2>/dev/null || true
+		run rcctl restart unwind 2>/dev/null || run rcctl start unwind 2>/dev/null || true
 	fi
 
 	if [ "$MODE" = vm ]; then

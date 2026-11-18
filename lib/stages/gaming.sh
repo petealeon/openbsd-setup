@@ -35,7 +35,18 @@ stage_gaming() {
 	run pkg_add -l "$list" || warn "pkg_add reported problems; see the output above"
 	rm -f "$list"
 
-	# The games menu wants a predictable place to look.
-	run mkdir -p "$GUEST_HOME/Games"
-	run chown "$GUEST_USER:$GUEST_USER" "$GUEST_HOME/Games"
+	# Predictable ROM/BIOS/save layout (works even if packages were skipped).
+	for d in "$GUEST_HOME/Games/roms" "$GUEST_HOME/Games/bios" \
+		"$GUEST_HOME/.config/retroarch/saves" \
+		"$GUEST_HOME/.config/retroarch/states" \
+		"$GUEST_HOME/.config/retroarch/system"; do
+		run mkdir -p "$d"
+	done
+	for sys in gba snes nes gb gbc megadrive mastersystem gamegear psx psp; do
+		run mkdir -p "$GUEST_HOME/Games/roms/$sys"
+	done
+	run chown -R "$GUEST_USER:$GUEST_USER" "$GUEST_HOME/Games" \
+		"$GUEST_HOME/.config/retroarch"
+
+	info "ROMs: ~/Games/roms/<system>/   BIOS: ~/Games/bios/"
 }

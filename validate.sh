@@ -20,6 +20,11 @@ if [ "$(uname -s)" = OpenBSD ]; then
 	step "doas"
 	doas -C /etc/doas.conf || bad "doas -C failed"
 
+	step "unwind"
+	if command -v unwind >/dev/null 2>&1 && [ -f /etc/unwind.conf ]; then
+		unwind -n >/dev/null 2>&1 || bad "unwind -n failed"
+	fi
+
 	step "services"
 	rcctl ls on 2>/dev/null | grep -qx xenodm || bad "xenodm is not enabled"
 else
@@ -52,6 +57,14 @@ grep -q 'ddkjiahejlhfcafbddmgiahcphecmpfh' \
 	bad "uBlock Origin Lite is not force-installed"
 [ -f "$repo/home/bin/video-download" ] ||
 	bad "video-download helper missing"
+[ -f "$repo/home/bin/update-blocklist" ] ||
+	bad "update-blocklist helper missing"
+[ -x "$repo/etc/hotplug/attach" ] ||
+	bad "hotplug/attach script missing or not executable"
+[ -f "$repo/etc/unwind.conf" ] ||
+	bad "unwind.conf missing"
+[ -f "$repo/home/.config/retroarch/retroarch.cfg" ] ||
+	bad "RetroArch default config missing"
 
 if [ "$fail" -eq 0 ]; then
 	printf '%s\n' "all checks passed"
