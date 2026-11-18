@@ -207,40 +207,124 @@ If any grab ever swallows the keyboard: `Ctrl+Alt+F2` (VT switch, handled by
 the kernel), log in, `pkill -f virt-manager`, then `Ctrl+Alt+F1` back to the
 desktop.
 
-## Export to bare metal
+## Install on bare metal (OpenBSD 8.0, T480s target)
 
-1. Fresh OpenBSD 8.0 install on the T480s (the installer creates `peter`).
-2. Bring up networking: copy `etc-hardware/hostname.iwm0.example` to
-   `/etc/hostname.iwm0` on the target and fill in SSID/passphrase (keep the
-   passphrase out of git). `hostname.em0` is already in `etc-hardware/`.
-3. Clone the repo as your user, then run it as root:
+The repo is the deliverable and `install.sh` is idempotent (safe to re-run; it
+backs up replaced user files to `~/.config-backup-<timestamp>/`). The run needs
+network access (patches, packages, and the `st` source tarball) and local
+console access. It configures `/etc`, installs packages, builds `st`, and sets
+up the desktop user’s home — it does **not** partition disks or change the
+bootloader. Do not run these steps against `nvme0n1`/its existing OpenBSD
+install; this is for the fresh target OpenBSD install.
+
+### 0. Prepare access to this (private) repo
+
+**On a secondary system (read this first):** the repo is private, so the target
+OpenBSD machine must authenticate to fetch it. Pick one method and have it
+ready before/during the OpenBSD install.
+
+- **Option A — HTTPS with a GitHub token (simplest):** on GitHub, create a
+  fine-grained personal access token with **read-only Contents** access to this
+  repo (or a classic PAT with `repo` scope). Treat it like a password. On
+  OpenBSD, `git clone` will prompt for credentials: use your GitHub username and
+  the token as the password. To avoid leaving the token in `.git/config`, do
+  **not** put it in the clone URL; if you want it cached for a short time, use
+  `git config --global credential.helper cache` (in-memory) before cloning.
+  Revoke or restrict the token when you’re done.
+- **Option B — SSH deploy key (clean for a single machine):** on the OpenBSD
+  machine generate a key, `ssh-keygen -t ed25519 -C "openbsd-t480s" -f ~/.ssh/id_ed25519`,
+  show the public key with `cat ~/.ssh/id_ed25519.pub`, and add it on GitHub as
+  a **read-only Deploy key** for this repository (Repo → Settings → Deploy
+  keys). Then clone over SSH (Option B below). Trust GitHub’s host key on first
+  use (`ssh -T git@github.com` or let `git clone` prompt; to pre-seed,
+  `mkdir -p ~/.ssh && ssh-keyscan github.com >> ~/.ssh/known_hosts`).
+- **Option C — copy the repo without GitHub access from OpenBSD:** on a system
+  that already has the repo, transfer it to the target (e.g.
+  `tar czf - -C ~ openbsd-setup | ssh <user>@<openbsd-ip> 'tar xzf - -C ~'`,
+  or `scp -r`, `rsync`, or a USB drive). You can skip installing `git` on the
+  target if you only need to run the installer.
+
+Repo URLs (once access is set up): HTTPS
+`https://github.com/petealeon/openbsd-setup.git`, SSH
+`git@github.com:petealeon/openbsd-setup.git`.
+
+### 1. Prepare the target OpenBSD install
+
+1. **Fresh install:** OpenBSD 8.0 amd64 with the **X sets** installed. Create
+   your user during install and add them to `wheel` (this guide assumes
+   `peter`; pass `--user <name>` to `install.sh` if different). Log in on the
+   console.
+2. **Network:** bring up a working connection before cloning/installing.
+   - *Ethernet:* as root, `echo dhcp > /etc/hostname.em0 && sh /etc/netstart em0`.
+   - *Wi-Fi:* `cp /path/if/you/have/it/etc-hardware/hostname.iwm0.example /etc/hostname.iwm0`
+     **or** (once the repo is present) `cp ~/openbsd-setup/etc-hardware/hostname.iwm0.example /etc/hostname.iwm0`,
+     edit it to set your SSID/passphrase (keep it out of git), then
+     `sh /etc/netstart iwm0`. If firmware is missing, `fw_update iwm` may be
+     needed (wired helps to bootstrap). `hostname.em0` is also provided in
+     `etc-hardware/` and applied by the installer.
+   - Verify: `ping -c 1 cdn.openbsd.org` (or another host).
+3. **Get the repo onto the machine** (as your user, e.g. in `~`):
+   - Install git if needed: `pkg_add git` (as root).
+   - **HTTPS (Option A):**
+     `git clone https://github.com/petealeon/openbsd-setup.git ~/openbsd-setup`
+     (enter username + token when prompted).
+   - **SSH (Option B):** after adding your deploy/user key on GitHub,
+     `git clone git@github.com:petealeon/openbsd-setup.git ~/openbsd-setup`.
+   - **Copy (Option C):** place the repo at `~/openbsd-setup`.
+   - `cd ~/openbsd-setup`.
+4. **Root access for the installer:** `install.sh` must run as root. Use a root
+   shell (`su -`, then `cd /home/<user>/openbsd-setup`) **or** `doas`. On a
+   fresh install `/etc/doas.conf` may not exist; to enable `doas` once as root:
+   `echo 'permit persist :wheel' > /etc/doas.conf && chmod 600 /etc/doas.conf`
+   (the repo manages it afterward). If your username is not `peter`, run with
+   `--user <name>`.
+
+### 2. Run the installer
 
 ```sh
-git clone <repo> ~/openbsd-setup
 cd ~/openbsd-setup
-doas ./install.sh --metal
+./install.sh --list                 # stage order
+./install.sh --metal --dry-run      # preview (no root required)
+doas ./install.sh --metal           # or run from a root shell
 ```
 
-`install.sh` walks idempotent stages: `system` (syspatch, fw_update, the
-`etc`/hardware overlay, xenodm/apmd/hotplugd + unwind/resolvd DNS backstop),
-`packages` (`pkg_add`), `terminal` (builds st 0.9.2 and installs BlexMono),
-`desktop` (dotfiles, amber theme, wallpapers, `~/bin`), `browser` (Chromium
-policy and adblocker), `gaming` (emulators/RetroArch defaults, its own stage
-because it needs ~3 GiB in `/usr/local`) and `validate`. Re-running it after
-editing the repo is the normal workflow; anything it replaces is first copied
-to `~/.config-backup-<timestamp>/`.
+Stages (all idempotent): `system` (syspatch/fw_update, `/etc` + hardware
+overlay, xenodm/apmd/hotplugd + unwind/resolvd DNS backstop), `packages`
+(`pkg_add`), `terminal` (builds st 0.9.2 and installs BlexMono), `desktop`
+(dotfiles, amber theme, wallpapers, `~/bin`), `browser` (Chromium policy and
+uBlock Origin Lite), `gaming` (RetroArch/emulators, space-aware — skipped with a
+warning if `< ~3 GiB` free in `/usr/local`), `validate`.
 
-Useful variants:
+Notes:
+- Keep network up for the whole run. `syspatch` may install a kernel update.
+- The `system` stage enables `unwind`/`resolvd` and points DNS at `127.0.0.1`;
+  if name resolution or package fetches fail after that, check
+  `rcctl check resolvd unwind`, `/etc/resolv.conf`, and connectivity, then
+  re-run.
+- Re-run selectively as needed: e.g. `doas ./install.sh --metal --only=gaming`,
+  `--only=terminal`, `--only=desktop`.
+
+### 3. Reboot and verify
 
 ```sh
-./install.sh --metal --dry-run          # print every change, touch nothing
-doas ./install.sh --metal --only=desktop
-doas ./install.sh --metal --only=terminal   # just rebuild st
-./install.sh --list                     # stage order
+reboot
 ```
 
-Root stays locked out (`PermitRootLogin no`, `AllowUsers peter`). Reboot
-afterwards to pick up sshd, xenodm and the wscons settings.
+Log in via **xenodm** to the spectrwm (amber) session. Quick checks:
+`Super+space` command menu, `Super+Shift+/` keybindings; terminal (`st`);
+network/audio/brightness/media keys; browser `Super+Shift+B` and adblock
+(`chrome://extensions`, `chrome://policy`); video download `Super+Shift+D`
+(clipboard route: `Ctrl+L`, `Ctrl+C` in Chromium, then `Super+Shift+D`);
+music `Super+Shift+M` (mpd/ncmpcpp); gaming `Super+Shift+G` (ROMs in
+`~/Games/roms/<system>/`, BIOS in `~/Games/bios/`) and plug in a wired Xbox
+One/Series controller to confirm detection. You can run `./validate.sh` on
+OpenBSD for config/service checks.
+
+Root SSH stays disabled (`PermitRootLogin no`, `AllowUsers peter` per repo
+policy) — keep console access until you’ve confirmed you can log in as
+expected. Reboot after install to pick up sshd, xenodm, wscons, and any kernel
+updates. If the hardware overlay overwrote a local tweak (e.g. `wsconsctl.conf`
+or you want different network files), reapply it and re-run the relevant stage.
 
 `st` is compiled from upstream 0.9.2 with the scrollback, scrollback-mouse and
 clipboard patches; its palette and font live in `share/st/config.h`. The alpha
