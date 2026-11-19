@@ -3,8 +3,8 @@
 #
 # Adjust sndio output volume/mute and show a dunst progress overlay.
 # Prefers the saved audio device (~/.config/audio-device), then $AUDIODEVICE,
-# then the default sndio device. Persists the last audible level so unmute
-# can restore it if the driver reports/sets level to 0 while muted.
+# then the default sndio device. Persists the last audible level and intended
+# mute state so unmute/driver quirks do not flip UI back to unmuted.
 
 set -eu
 
@@ -14,6 +14,10 @@ conf_dir="$HOME/.config"
 dev_file="$conf_dir/audio-device"
 state_dir="${XDG_STATE_HOME:-$HOME/.local/state}/openbsd-setup"
 level_state="$state_dir/volume-level"
+mute_state="$state_dir/volume-muted"
+stamp_state="$state_dir/volume-stamp"
+
+mkdir -p "$state_dir" 2>/dev/null || true
 
 notify() {
 	pct=$1 muted=$2
@@ -31,6 +35,22 @@ notify() {
 }
 
 is_num() { case ${1:-} in ''|*[!0-9.-]*) return 1 ;; *) return 0 ;; esac; }
+
+now_ts() {
+	# best-effort subsecond timestamp; falls back to integer seconds
+	perl -MTime::HiRes=time -e 'printf "%.3f", time' 2>/dev/null || date +%s
+}
+
+# Debounce rapid repeated invocations (e.g. key auto-repeat) that can apply
+# multiple steps per perceived keypress. Status is exempt.
+if [ "$cmd" = "up" ] || [ "$cmd" = "down" ]; then
+	n=$(now_ts)
+	p=$(sed -n '1p' "$stamp_state" 2>/dev/null || true)
+	if is_num "$p" && awk -v n="$n" -v p="$p" 'BEGIN{exit !((n-p) < 0.12)}'; then
+		exit 0
+	fi
+	printf '%s\n' "$n" >"$stamp_state" 2>/dev/null || true
+fi
 
 saved_dev() {
 	d=$(sed -n '1p' "$dev_file" 2>/dev/null || true)
@@ -106,24 +126,30 @@ to_pct() {
 	awk -v l="$1" 'BEGIN{v=l*100+0.5; if(v<0)v=0; if(v>100)v=100; printf "%d", v}'
 }
 
+gt_zero() { awk -v l="$1" 'BEGIN{exit !(l > 0.001)}'; }
+is_zeroish() { awk -v l="$1" 'BEGIN{exit !(l <= 0.001)}'; }
+
 save_level() {
 	l=$1
 	is_num "$l" || return 0
-	awk -v l="$l" 'BEGIN{exit !(l > 0.001)}' || return 0
-	mkdir -p "$state_dir" 2>/dev/null || return 0
+	gt_zero "$l" || return 0
 	printf '%s\n' "$l" >"$level_state" 2>/dev/null || true
 }
 
 saved_level() {
 	l=$(sed -n '1p' "$level_state" 2>/dev/null || true)
 	is_num "$l" || return 1
-	awk -v l="$l" 'BEGIN{exit !(l > 0.001)}' || return 1
+	gt_zero "$l" || return 1
 	printf '%s' "$l"
 }
 
+# intended mute marker: helps when drivers report/clear mute inconsistently
+set_mute_marker() { : >"$mute_state" 2>/dev/null || true; }
+clear_mute_marker() { rm -f "$mute_state" 2>/dev/null || true; }
+has_mute_marker() { [ -f "$mute_state" ]; }
+
 apply_pair() {
 	l=$1 m=$2 dev=$3 ok=0
-	# setting level while muted is fine; also set mute explicitly
 	if snd_set output.level "$l" "$dev"; then ok=1; fi
 	if snd_set output.mute "$m" "$dev"; then ok=1; fi
 	[ "$ok" -eq 1 ]
@@ -138,74 +164,117 @@ set_mute_state() {
 	return 1
 }
 
+set_level_state() {
+	want=$1 dev=$2
+	for d in "$dev" $(build_candidates); do
+		[ "${d+x}" = x ] || continue
+		if snd_set output.level "$want" "$d"; then printf '%s' "$d"; return 0; fi
+	done
+	return 1
+}
+
 restore_if_silent() {
 	dev=$1
 	rlev=$(snd_get output.level "$dev")
 	is_num "$rlev" || rlev=$level
-	awk -v l="$rlev" 'BEGIN{exit !(l <= 0.001)}' || { level=$rlev; return 0; }
-	prev=$(saved_level 2>/dev/null || true)
-	[ -n "$prev" ] || { level=$rlev; return 0; }
-	if snd_set output.level "$prev" "$dev"; then
-		rlev=$(snd_get output.level "$dev")
-		is_num "$rlev" && level=$rlev || level=$prev
+	if is_zeroish "$rlev"; then
+		prev=$(saved_level 2>/dev/null || true)
+		if [ -n "$prev" ]; then
+			if d=$(set_level_state "$prev" "$dev"); then dev=$d; fi
+			rlev=$(snd_get output.level "$dev")
+			is_num "$rlev" && level=$rlev || level=$prev
+		else
+			level=$rlev
+		fi
 	else
-		level=$prev
+		level=$rlev
 	fi
 }
+
+# reconcile intended mute with driver state for reporting
+effective_mute=$mute
+if has_mute_marker; then
+	effective_mute=1
+fi
 
 case $cmd in
 up|down)
 	case $step in ''|*[!0-9]*) step=5 ;; esac
 	delta=$step
 	[ "$cmd" = down ] && delta=-$step
-	new=$(awk -v c="$level" -v d="$delta" 'BEGIN{v=c + d/100.0; if(v<0)v=0; if(v>1)v=1; printf "%.3f", v}')
+	# if currently (effectively) muted, adjust from the last audible level
+	base=$level
+	if [ "$effective_mute" -eq 1 ]; then
+		base=$(saved_level 2>/dev/null || printf '%s' "$level")
+		is_num "$base" || base=$level
+	fi
+	new=$(awk -v c="$base" -v d="$delta" 'BEGIN{v=c + d/100.0; if(v<0)v=0; if(v>1)v=1; printf "%.3f", v}')
 	# expected behavior: changing volume unmutes
+	clear_mute_marker
 	new_mute=0
-	# try target first, then fallbacks
 	applied=0
 	for d in "$target" $(build_candidates); do
 		[ "${d+x}" = x ] || continue
 		if apply_pair "$new" "$new_mute" "$d"; then applied=1; target=$d; break; fi
 	done
-	# last resort: try default explicitly if we were targeting a device
 	if [ "$applied" -eq 0 ] && [ -n "$target" ]; then
 		apply_pair "$new" "$new_mute" "" && { applied=1; target=""; }
 	fi
-	# read back
 	rlev=$(snd_get output.level "$target"); rmute=$(snd_get output.mute "$target")
 	is_num "$rlev" && level=$rlev || level=$new
 	case $rmute in 1) mute=1 ;; 0) mute=0 ;; *) mute=$new_mute ;; esac
 	save_level "$level"
 	;;
 mute)
-	save_level "$level"
-	if d=$(set_mute_state 1 "$target"); then target=$d; fi
-	rmute=$(snd_get output.mute "$target")
-	case $rmute in 1) mute=1 ;; 0) mute=0 ;; *) mute=1 ;; esac
-	rlev=$(snd_get output.level "$target"); is_num "$rlev" && level=$rlev || true
+	if [ "$effective_mute" -eq 0 ]; then
+		save_level "$level"
+	fi
+	set_mute_marker
+	# set mute flag and also force level to 0 for drivers where mute is flaky
+	for d in "$target" $(build_candidates); do
+		[ "${d+x}" = x ] || continue
+		if snd_set output.mute 1 "$d"; then target=$d; break; fi
+	done
+	snd_set output.level 0 "$target" || true
+	mute=1
+	rlev=$(snd_get output.level "$target")
+	is_num "$rlev" && level=$rlev || level=0
 	;;
 unmute)
-	if d=$(set_mute_state 0 "$target"); then target=$d; fi
-	rmute=$(snd_get output.mute "$target")
-	case $rmute in 0) mute=0 ;; 1) mute=1 ;; *) mute=0 ;; esac
+	clear_mute_marker
+	for d in "$target" $(build_candidates); do
+		[ "${d+x}" = x ] || continue
+		if snd_set output.mute 0 "$d"; then target=$d; break; fi
+	done
+	mute=0
 	restore_if_silent "$target"
 	rmute=$(snd_get output.mute "$target"); case $rmute in 1) mute=1 ;; *) mute=0 ;; esac
 	save_level "$level"
 	;;
 toggle)
-	if [ "$mute" -eq 1 ]; then
-		if d=$(set_mute_state 0 "$target"); then target=$d; fi
-		rmute=$(snd_get output.mute "$target")
-		case $rmute in 0) mute=0 ;; 1) mute=1 ;; *) mute=0 ;; esac
+	if [ "$effective_mute" -eq 1 ]; then
+		# unmute
+		clear_mute_marker
+		for d in "$target" $(build_candidates); do
+			[ "${d+x}" = x ] || continue
+			if snd_set output.mute 0 "$d"; then target=$d; break; fi
+		done
+		mute=0
 		restore_if_silent "$target"
 		rmute=$(snd_get output.mute "$target"); case $rmute in 1) mute=1 ;; *) mute=0 ;; esac
 		save_level "$level"
 	else
+		# mute
 		save_level "$level"
-		if d=$(set_mute_state 1 "$target"); then target=$d; fi
-		rmute=$(snd_get output.mute "$target")
-		case $rmute in 1) mute=1 ;; 0) mute=0 ;; *) mute=1 ;; esac
-		rlev=$(snd_get output.level "$target"); is_num "$rlev" && level=$rlev || true
+		set_mute_marker
+		for d in "$target" $(build_candidates); do
+			[ "${d+x}" = x ] || continue
+			if snd_set output.mute 1 "$d"; then target=$d; break; fi
+		done
+		snd_set output.level 0 "$target" || true
+		mute=1
+		rlev=$(snd_get output.level "$target")
+		is_num "$rlev" && level=$rlev || level=0
 	fi
 	;;
 set)
@@ -214,6 +283,7 @@ set)
 	[ "$val" -lt 0 ] && val=0
 	[ "$val" -gt 100 ] && val=100
 	new=$(awk -v p="$val" 'BEGIN{printf "%.3f", p/100.0}')
+	clear_mute_marker
 	new_mute=0
 	for d in "$target" $(build_candidates); do
 		[ "${d+x}" = x ] || continue
@@ -225,7 +295,8 @@ set)
 	save_level "$level"
 	;;
 status)
-	: # just report
+	# report using intended mute if set
+	if has_mute_marker; then mute=1; fi
 	;;
 *)
 	echo "usage: ${0##*/} [up|down|mute|unmute|toggle|set N|status] [step]" >&2
@@ -233,5 +304,17 @@ status)
 	;;
 esac
 
+# final reporting: honor intended mute marker
+if has_mute_marker; then
+	mute=1
+	# prefer last audible level for display if we forced level to 0
+	if is_zeroish "$level"; then
+		dl=$(saved_level 2>/dev/null || true)
+		is_num "$dl" && level=$dl || true
+	fi
+fi
+
 notify "$(to_pct "$level")" "$mute"
+# nudge bar.sh to refresh promptly (if running)
+pkill -USR1 -f '[b]ar\.sh' >/dev/null 2>&1 || pkill -USR1 bar.sh >/dev/null 2>&1 || true
 exit 0
