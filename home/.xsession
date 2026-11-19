@@ -14,6 +14,28 @@ fi
 PATH="$HOME/bin:/usr/local/bin:/usr/X11R6/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 export PATH
 
+# Ensure interactive ksh shells (e.g. terminals) load ~/.kshrc for prompt,
+# aliases, colors and persistent history.
+export ENV="$HOME/.kshrc"
+
+# Locale and terminal defaults for X session apps (btop, ncmpcpp, etc.).
+export LANG="${LANG:-en_US.UTF-8}"
+export LC_CTYPE="${LC_CTYPE:-en_US.UTF-8}"
+export LC_ALL="${LC_ALL:-en_US.UTF-8}"
+if [ -z "${TERM:-}" ] || [ "$TERM" = "dumb" ]; then
+	if infocmp st-256color >/dev/null 2>&1; then
+		export TERM=st-256color
+	else
+		export TERM=xterm-256color
+	fi
+fi
+
+# Persisted audio output hint (set by ~/bin/audio-output).
+if [ -z "${AUDIODEVICE:-}" ] && [ -f "$HOME/.config/audio-device" ]; then
+	AUDIODEVICE=$(sed -n '1p' "$HOME/.config/audio-device" 2>/dev/null)
+	case ${AUDIODEVICE:-} in ''|default) ;; *) export AUDIODEVICE ;; esac
+fi
+
 # Clipboard history (clipmenu) uses rofi as its picker.
 export CM_LAUNCHER=rofi
 export CM_SELECTIONS="clipboard"
@@ -30,9 +52,11 @@ xset dpms 600 900 1200 2>/dev/null || true
 xset b off 2>/dev/null || true
 
 # ── input: touchscreen and trackpad ─────────────────────────────────────────
-# Map an absolute pointing device (touchscreen) onto the internal panel, and
-# turn on natural scrolling / tap-to-click when the driver exposes them.  The
-# wscons tunables themselves live in /etc/wsconsctl.conf.
+# The wscons tunables themselves live in /etc/wsconsctl.conf (applied at boot).
+# Here we configure X/libinput devices for a "smooth, natural" feel similar to
+# modern desktops: natural scrolling, tap-to-click, tap drag, and sane accel.
+# xinput works with both the xf86-input-libinput and synaptics-era device
+# properties; commands fail harmlessly if a property is unsupported.
 if command -v xinput >/dev/null 2>&1; then
 	out=$(xrandr --query 2>/dev/null |
 		sed -n 's/^\([^ ]*\) connected primary.*/\1/p' | sed -n 1p)
@@ -45,6 +69,43 @@ if command -v xinput >/dev/null 2>&1; then
 				xinput map-to-output "$dev" "$out" >/dev/null 2>&1 || true
 			done
 	fi
+
+	# Apply pointer tuning to trackpads and the TrackPoint.
+	xinput list --name-only 2>/dev/null | while IFS= read -r dev; do
+		case $(printf '%s' "$dev" | tr 'A-Z' 'a-z') in
+		*touchpad*|*trackpad*|*synaptics*|*trackpoint*|*pointing*)
+			# libinput: natural scrolling, tap-to-click, tap-drag, accel
+			xinput set-prop "$dev" "libinput Natural Scrolling Enabled" 1 \
+				>/dev/null 2>&1 || true
+			xinput set-prop "$dev" "libinput Tapping Enabled" 1 \
+				>/dev/null 2>&1 || true
+			xinput set-prop "$dev" "libinput Tapping Drag Enabled" 1 \
+				>/dev/null 2>&1 || true
+			xinput set-prop "$dev" "libinput Disable While Typing Enabled" 1 \
+				>/dev/null 2>&1 || true
+			xinput set-prop "$dev" "libinput Accel Speed" 0.25 \
+				>/dev/null 2>&1 || true
+			# synaptics fallback properties (if present)
+			xinput set-prop "$dev" "Synaptics Tap Action" 1 1 1 1 1 1 2 3 \
+				>/dev/null 2>&1 || true
+			xinput set-prop "$dev" "Synaptics Scrolling Distance" -30 -30 \
+				>/dev/null 2>&1 || true
+			xinput set-prop "$dev" "Synaptics Palm Detection" 1 \
+				>/dev/null 2>&1 || true
+			;;
+		esac
+	done
+fi
+# wscons fallback (harmless if unsupported): try natural scrolling on the
+# touchpad device if exposed via wsconsctl.
+if command -v wsconsctl >/dev/null 2>&1; then
+	for p in mouse.reverse_scrolling mouse.tp.reverse_scrolling \
+		mouse.tp.scaling mouse.tp.tapping; do
+		case $p in
+		*reverse_scrolling) wsconsctl "$p=1" >/dev/null 2>&1 || true ;;
+		*tapping)           wsconsctl "$p=1" >/dev/null 2>&1 || true ;;
+		esac
+	done
 fi
 
 # ── wallpaper ───────────────────────────────────────────────────────────────
@@ -72,10 +133,18 @@ command -v xbanish >/dev/null 2>&1 && xbanish >/dev/null 2>&1 &
 
 # Music daemon, so the bar can show what is playing.
 if command -v mpd >/dev/null 2>&1 && ! mpc ping >/dev/null 2>&1; then
-	for d in "$HOME/Music" "$HOME/.local/share/mpd/playlists"; do
+	for d in "$HOME/Music" "$HOME/.local/share/mpd/playlists" "$HOME/.local/share/mpd" "$HOME/.local/share/lyrics"; do
 		mkdir -p "$d" 2>/dev/null || true
 	done
-	mpd "$HOME/.config/mpd/mpd.conf" >/dev/null 2>&1 || true
+	# Clear stale pid if present
+	if [ -f "$HOME/.local/share/mpd/pid" ]; then
+		oldpid=$(sed -n '1p' "$HOME/.local/share/mpd/pid" 2>/dev/null)
+		case $oldpid in
+		''|*[!0-9]*) rm -f "$HOME/.local/share/mpd/pid" 2>/dev/null || true ;;
+		*) kill -0 "$oldpid" 2>/dev/null || rm -f "$HOME/.local/share/mpd/pid" 2>/dev/null || true ;;
+		esac
+	fi
+	mpd "$HOME/.config/mpd/mpd.conf" >>"$HOME/.local/share/mpd/log" 2>&1 || true
 fi
 
 # Lock after five idle minutes; `pkill -USR1 xidle` locks immediately (used by

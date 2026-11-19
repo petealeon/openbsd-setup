@@ -33,15 +33,34 @@ join_segments() {
 	printf '%s' "$out"
 }
 
+saved_audio_dev() {
+	d=$(sed -n '1p' "$HOME/.config/audio-device" 2>/dev/null)
+	case ${d:-} in ''|default) printf '%s' "" ;; *) printf '%s' "$d" ;; esac
+}
+
 volume_seg() {
-	level=$(sndioctl -n output.level 2>/dev/null | sed -n 1p)
+	dev=$(saved_audio_dev)
+	if [ -n "$dev" ]; then
+		level=$(sndioctl -f "$dev" -n output.level 2>/dev/null | sed -n 1p)
+		mute=$(sndioctl -f "$dev" -n output.mute 2>/dev/null | sed -n 1p)
+	else
+		level=$(sndioctl -n output.level 2>/dev/null | sed -n 1p)
+		mute=$(sndioctl -n output.mute 2>/dev/null | sed -n 1p)
+	fi
+	# fallback
+	if [ -z "$level" ]; then
+		level=$(sndioctl -n output.level 2>/dev/null | sed -n 1p)
+		[ -n "$mute" ] || mute=$(sndioctl -n output.mute 2>/dev/null | sed -n 1p)
+	fi
 	[ -n "$level" ] || return 0
 	pct=$(awk -v l="$level" 'BEGIN { printf "%d", l * 100 + 0.5 }')
-	if [ "$(sndioctl -n output.mute 2>/dev/null | sed -n 1p)" = 1 ]; then
+	case $mute in 1)
 		printf '%svol muted%s' "$RED" "$FG"
-	else
+		;;
+	*)
 		printf '%svol %s%%%s' "$DIM" "$pct" "$FG"
-	fi
+		;;
+	esac
 }
 
 battery_seg() {
@@ -63,13 +82,10 @@ net_seg() {
 	ssid=$(ifconfig iwm0 2>/dev/null |
 		sed -n 's/.*ieee80211: nwid \(.*\) chan .*/\1/p' | sed -n 1p)
 	if [ -n "$ssid" ]; then
-		# bar_action_expand processes +sequences in our output, so a '+'
-		# inside a network name has to be escaped as '++'.
 		ssid=$(printf '%s' "$ssid" | sed 's/+/++/g')
 		printf '%swifi %s%s' "$DIM" "$ssid" "$FG"
 		return 0
 	fi
-	# em0 on the T480s, vio0 in the rehearsal VM, re0 on USB/Thunderbolt NICs.
 	for i in em0 vio0 re0; do
 		if ifconfig "$i" 2>/dev/null | grep -q 'status: active'; then
 			printf '%swired %s%s' "$DIM" "$i" "$FG"
@@ -94,7 +110,6 @@ music_seg() {
 	command -v mpc >/dev/null 2>&1 || return 0
 	song=$(mpc current 2>/dev/null) || return 0
 	[ -n "$song" ] || return 0
-	# Trim long titles and escape the + used by the bar markup.
 	song=$(printf '%s' "$song" | cut -c1-40 | sed 's/+/++/g')
 	if mpc status 2>/dev/null | grep -q '\[playing\]'; then
 		printf '%s▶ %s%s' "$AMBER" "$song" "$FG"
@@ -103,8 +118,34 @@ music_seg() {
 	fi
 }
 
+audio_seg() {
+	short=$(sed -n '1p' "$HOME/.config/audio-device-short" 2>/dev/null)
+	if [ -z "$short" ]; then
+		name=$(sed -n '1p' "$HOME/.config/audio-device-name" 2>/dev/null)
+		dev=$(saved_audio_dev)
+		[ -n "$dev" ] || dev=default
+		lc=$(printf '%s %s' "$name" "$dev" | tr 'A-Z' 'a-z')
+		case $lc in
+		*uaudio*|*usb*|*dac*|*headset*|*interface*) short="USB" ;;
+		*dock*) short="Dock" ;;
+		*hdmi*|*displayport*) short="HDMI" ;;
+		*azalia*|*hdafg*|*hdaudio*|*speaker*) short="Int" ;;
+		*default*) short="Default" ;;
+		*)
+			case $dev in
+			snd/*) short="snd${dev#snd/}" ;;
+			*) short="Audio" ;;
+			esac
+			;;
+		esac
+	fi
+	[ -n "$short" ] || return 0
+	short=$(printf '%s' "$short" | cut -c1-10 | sed 's/+/++/g')
+	printf '%s%s%s' "$DIM" "$short" "$FG"
+}
+
 # Battery, network, temperature and the current track move slowly: refresh
-# them every 20s and keep the clock and volume on every tick.
+# them every 20s and keep clock/volume/audio on every tick.
 net=''
 bat=''
 temp=''
@@ -118,8 +159,9 @@ while :; do
 		temp=$(temp_seg)
 		music=$(music_seg)
 	fi
+	audio=$(audio_seg)
 
-	line=$(join_segments "$net" "$bat" "$temp" "$(volume_seg)" "$music" \
+	line=$(join_segments "$net" "$bat" "$temp" "$(volume_seg)" "$audio" "$music" \
 		"${AMBER}$(date '+%a %d %b  %H:%M')${FG}")
 	printf '%s\n' "$line"
 

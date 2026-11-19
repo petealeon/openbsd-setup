@@ -1,0 +1,200 @@
+#!/bin/sh
+# openbsd-setup-update — fetch and apply openbsd-setup changes on OpenBSD.
+#
+# Checks for upstream changes, updates the local repo clone, and runs update.sh
+# for changes that have not been applied yet. Designed for OpenBSD (/bin/sh).
+#
+# State: ${XDG_STATE_HOME:-$HOME/.local/state}/openbsd-setup/last-applied
+#   records the commit successfully applied, so reruns only apply new changes.
+
+set -eu
+
+REPO_URL_DEFAULT="https://github.com/petealeon/openbsd-setup.git"
+REPO_DIR_DEFAULT="$HOME/openbsd-setup"
+STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/openbsd-setup"
+STATE_FILE="$STATE_DIR/last-applied"
+
+usage() {
+	cat <<'EOF'
+usage: openbsd-setup-update [options]
+
+  --repo PATH        repo checkout (default: ~/openbsd-setup)
+  --user NAME        desktop user/home to update (default: invoking user)
+  --branch NAME      branch to track (default: current/upstream branch)
+  --remote NAME      git remote (default: origin)
+  --skip-terminal    pass --skip-terminal to update.sh
+  --check, --dry-run fetch and show pending changes, do not apply
+  --bootstrap        clone the repo if missing, then continue
+  -h, --help         show this help
+
+Environment:
+  OPENBSD_SETUP_REPO   default repo path
+  OPENBSD_SETUP_URL    clone URL used with --bootstrap
+EOF
+}
+
+say()  { printf '==> %s\n' "$*"; }
+info() { printf '    %s\n' "$*"; }
+warn() { printf '!!  %s\n' "$*" >&2; }
+die()  { printf 'error: %s\n' "$*" >&2; exit 1; }
+
+have() { command -v "$1" >/dev/null 2>&1; }
+
+REPO_DIR=${OPENBSD_SETUP_REPO:-$REPO_DIR_DEFAULT}
+REPO_URL=${OPENBSD_SETUP_URL:-$REPO_URL_DEFAULT}
+TARGET_USER=${OPENBSD_SETUP_USER:-${DOAS_USER:-${SUDO_USER:-${USER:-}}}}
+REMOTE=origin
+BRANCH=
+SKIP_TERMINAL=0
+CHECK_ONLY=0
+BOOTSTRAP=0
+
+# If invoked as root without a useful user hint, require --user later.
+case ${TARGET_USER:-} in root|"") TARGET_USER="" ;; esac
+
+while [ $# -gt 0 ]; do
+	case $1 in
+	--repo) REPO_DIR=${2:-}; [ $# -gt 1 ] && shift ;;
+	--repo=*) REPO_DIR=${1#--repo=} ;;
+	--user) TARGET_USER=${2:-}; [ $# -gt 1 ] && shift ;;
+	--user=*) TARGET_USER=${1#--user=} ;;
+	--branch) BRANCH=${2:-}; [ $# -gt 1 ] && shift ;;
+	--branch=*) BRANCH=${1#--branch=} ;;
+	--remote) REMOTE=${2:-}; [ $# -gt 1 ] && shift ;;
+	--remote=*) REMOTE=${1#--remote=} ;;
+	--skip-terminal) SKIP_TERMINAL=1 ;;
+	--check|--dry-run) CHECK_ONLY=1 ;;
+	--bootstrap) BOOTSTRAP=1 ;;
+	-h|--help) usage; exit 0 ;;
+	*) die "unknown argument: $1" ;;
+	esac
+	shift
+done
+
+[ -n "$TARGET_USER" ] || die "cannot determine desktop user; pass --user <name>"
+have git || die "git is required (pkg_add git)"
+have doas || die "doas is required"
+
+if [ ! -d "$REPO_DIR/.git" ]; then
+	if [ "$BOOTSTRAP" -eq 1 ]; then
+		say "cloning openbsd-setup"
+		parent=$(dirname "$REPO_DIR")
+		mkdir -p "$parent"
+		git clone "$REPO_URL" "$REPO_DIR"
+	else
+		die "repo not found: $REPO_DIR (clone it or run with --bootstrap)"
+	fi
+fi
+
+cd "$REPO_DIR"
+[ -d .git ] || die "not a git repository: $REPO_DIR"
+[ -f update.sh ] || die "update.sh not found in $REPO_DIR"
+
+# Determine branch
+if [ -z "$BRANCH" ]; then
+	BRANCH=$(git symbolic-ref --quiet --short HEAD 2>/dev/null || true)
+fi
+[ -n "$BRANCH" ] || BRANCH=master
+
+UPSTREAM="$REMOTE/$BRANCH"
+
+say "checking for updates"
+info "repo: $REPO_DIR"
+info "remote: $UPSTREAM"
+info "user: $TARGET_USER"
+
+# Safety: refuse to operate on a dirty tree (avoid clobbering local edits).
+if [ -n "$(git status --porcelain 2>/dev/null || true)" ]; then
+	die "working tree has local changes; commit/stash them before updating"
+fi
+
+git fetch --prune "$REMOTE" >/dev/null 2>&1 || \
+	git fetch --prune "$REMOTE" || die "git fetch failed"
+
+# Resolve upstream ref
+if ! git rev-parse --verify --quiet "$UPSTREAM" >/dev/null; then
+	# fall back to remote HEAD if branch ref missing
+	UPSTREAM=$(git symbolic-ref --quiet --short "refs/remotes/$REMOTE/HEAD" 2>/dev/null || true)
+	[ -n "$UPSTREAM" ] || UPSTREAM="$REMOTE/master"
+	git rev-parse --verify --quiet "$UPSTREAM" >/dev/null || \
+		die "cannot resolve upstream branch ($REMOTE/$BRANCH)"
+fi
+
+LOCAL=$(git rev-parse --verify HEAD)
+REMOTE_HEAD=$(git rev-parse --verify "$UPSTREAM")
+
+LAST_APPLIED=""
+if [ -f "$STATE_FILE" ]; then
+	LAST_APPLIED=$(sed -n '1p' "$STATE_FILE" 2>/dev/null || true)
+fi
+
+if [ -n "$LAST_APPLIED" ] && git rev-parse --verify --quiet "$LAST_APPLIED^{commit}" >/dev/null; then
+	BASE=$LAST_APPLIED
+else
+	# No trustworthy state: treat current checkout as the baseline only after
+	# a successful apply; for now report pending relative to upstream/local.
+	BASE=$LOCAL
+fi
+
+if [ "$REMOTE_HEAD" = "$LAST_APPLIED" ]; then
+	say "already up to date (last applied: ${LAST_APPLIED#????????????????????????????????????????})"
+	say_short=$(printf '%s' "$LAST_APPLIED" | cut -c1-12)
+	info "commit: $say_short"
+	# Still fast-forward local checkout if it lags behind applied state? unlikely.
+	if [ "$LOCAL" != "$REMOTE_HEAD" ]; then
+		info "local checkout differs; fast-forwarding to $UPSTREAM"
+		[ "$CHECK_ONLY" -eq 1 ] || git merge --ff-only "$UPSTREAM"
+	fi
+	exit 0
+fi
+
+# Show what will be applied (changes between last-applied/base and upstream).
+say "updates available"
+if [ -n "$LAST_APPLIED" ] && git rev-parse --verify --quiet "$LAST_APPLIED^{commit}" >/dev/null; then
+	info "last applied: $(printf '%s' "$LAST_APPLIED" | cut -c1-12)"
+else
+	info "last applied: (none recorded)"
+fi
+info "upstream:     $(printf '%s' "$REMOTE_HEAD" | cut -c1-12)"
+info "changes since last applied:"
+git --no-pager log --oneline "${BASE}..${REMOTE_HEAD}" 2>/dev/null || \
+	git --no-pager log --oneline -n 20 "$REMOTE_HEAD" 2>/dev/null || true
+
+if [ "$CHECK_ONLY" -eq 1 ]; then
+	info "check mode: no changes applied"
+	exit 0
+fi
+
+# Fast-forward local checkout to upstream (clean tree required above).
+if [ "$LOCAL" != "$REMOTE_HEAD" ]; then
+	say "updating local checkout"
+	# Only allow fast-forward to avoid surprise merges.
+	if git merge-base --is-ancestor "$LOCAL" "$REMOTE_HEAD" 2>/dev/null; then
+		git merge --ff-only "$UPSTREAM"
+	elif git merge-base --is-ancestor "$REMOTE_HEAD" "$LOCAL" 2>/dev/null; then
+		info "local checkout is ahead of $UPSTREAM; applying local HEAD"
+		REMOTE_HEAD=$LOCAL
+	else
+		die "local branch and $UPSTREAM have diverged; resolve manually"
+	fi
+fi
+
+APPLY_REV=$(git rev-parse --verify HEAD)
+
+say "applying updates"
+set -- doas sh ./update.sh --user "$TARGET_USER"
+if [ "$SKIP_TERMINAL" -eq 1 ]; then
+	set -- "$@" --skip-terminal
+fi
+info "running: $*"
+if "$@"; then
+	mkdir -p "$STATE_DIR"
+	printf '%s\n' "$APPLY_REV" >"$STATE_FILE"
+	say "applied successfully"
+	info "recorded: $(printf '%s' "$APPLY_REV" | cut -c1-12)"
+	info "log out/in to xenodm (or reboot) if desktop/session changes were applied"
+	exit 0
+else
+	rc=$?
+	die "update.sh failed (exit $rc); last-applied not updated - fix issues and re-run"
+fi

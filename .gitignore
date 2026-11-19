@@ -2,3 +2,8 @@ secrets/*
 !secrets/.gitignore
 *.qcow2
 *.iso
+
+# Local diagnostic/output dumps (do not commit)
+suspend-diag-*.txt
+*-diag-*.txt
+*.diag.txt

@@ -76,9 +76,22 @@ element normal.urgent {
     text-color:       @red;
 }
 
-element selected.normal {
+element normal.active,
+element alternate.normal,
+element alternate.active {
+    background-color: transparent;
+    text-color:       @fg;
+}
+
+element selected.normal,
+element selected.active {
     background-color: @amber;
     text-color:       @bg0;
+}
+
+element alternate.urgent {
+    background-color: transparent;
+    text-color:       @red;
 }
 
 element selected.urgent {
@@ -87,13 +100,29 @@ element selected.urgent {
 }
 
 element-icon {
-    size:            22px;
-    background-color: transparent;
+    size:             22px;
+    background-color: inherit;
+    text-color:       inherit;
 }
 
 element-text {
-    background-color: transparent;
+    background-color: inherit;
+    text-color:       inherit;
+    highlight:        bold #0f0e0c;
     vertical-align:   0.5;
+}
+
+element-text selected.normal,
+element-text selected.active {
+    background-color: @amber;
+    text-color:       @bg0;
+    highlight:        bold #0f0e0c;
+}
+
+element-text selected.urgent {
+    background-color: @red;
+    text-color:       @fg;
+    highlight:        bold #ffffff;
 }
 
 scrollbar {

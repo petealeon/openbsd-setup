@@ -1,66 +1,120 @@
 #!/bin/sh
-# brightness [up|down|set] [percent]
+# brightness [up|down|set N] [step-percent]
 #
-# T480s backlight through wsconsctl, which needs the doas rule from
-# etc/doas.conf:
-#
-#     permit nopass :wheel cmd /sbin/wsconsctl
-#
-# If the panel does not expose display.brightness (or doas is not configured)
-# it falls back to a software gamma dim so the keys still do something.
+# Adjust backlight and show a dunst progress overlay.
+# Prefers wsconsctl display.brightness (needs doas rule for /sbin/wsconsctl);
+# falls back to xrandr gamma dimming if unavailable.
 
-set -u
+set -eu
 
 action=${1:-up}
 step=${2:-5}
-state="${XDG_RUNTIME_DIR:-/tmp}/.brightness.$(id -u)"
+state_dir="${XDG_RUNTIME_DIR:-/tmp}"
+state="$state_dir/.brightness.$(id -u)"
+max_state="$state_dir/.brightness.max.$(id -u)"
 
-cur_level() {
-	lvl=$(doas /sbin/wsconsctl -n display.brightness 2>/dev/null | sed -n 1p)
-	case $lvl in ''|*[!0-9]*) lvl= ;; esac
-	printf '%s' "$lvl"
+notify_brightness() {
+	pct=$1
+	case $pct in ''|*[!0-9-]*) pct=0 ;; esac
+	[ "$pct" -lt 0 ] && pct=0
+	[ "$pct" -gt 100 ] && pct=100
+	command -v notify-send >/dev/null 2>&1 || return 0
+	notify-send -a brightness -h string:x-dunst-stack-tag:brightness \
+		-h "int:value:$pct" "brightness" "$pct%" >/dev/null 2>&1 || true
+}
+
+ws_get_raw() {
+	# Prefer non-interactive doas (configured for wsconsctl), then plain.
+	v=$(doas -n /sbin/wsconsctl 2>/dev/null | sed -n 's/^display\.brightness=\(.*\)$/\1/p' | sed -n '1p' || true)
+	[ -n "$v" ] || v=$(/sbin/wsconsctl 2>/dev/null | sed -n 's/^display\.brightness=\(.*\)$/\1/p' | sed -n '1p' || true)
+	[ -n "$v" ] || v=$(doas -n /sbin/wsconsctl -n display.brightness 2>/dev/null | sed -n '1p' || true)
+	[ -n "$v" ] || v=$(/sbin/wsconsctl -n display.brightness 2>/dev/null | sed -n '1p' || true)
+	printf '%s' "$v"
+}
+
+parse_num_pair() {
+	# prints "cur max" if possible; raw can be "50.00%" or "50,0,100"
+	raw=$1
+	case $raw in
+	*,*,*)
+		cur=$(printf '%s' "$raw" | awk -F',' '{print $1+0}')
+		max=$(printf '%s' "$raw" | awk -F',' '{print $3+0}')
+		printf '%s %s' "$cur" "$max"
+		return 0
+		;;
+	esac
+	# strip trailing % and anything non-numeric-ish
+	clean=$(printf '%s' "$raw" | tr -d '%' | awk '{print $1+0}')
+	[ -n "$clean" ] || return 1
+	printf '%s %s' "$clean" 100
+}
+
+ws_set() {
+	v=$1
+	doas -n /sbin/wsconsctl "display.brightness=$v" >/dev/null 2>&1 && return 0
+	/sbin/wsconsctl "display.brightness=$v" >/dev/null 2>&1 && return 0
+	return 1
 }
 
 gamma_fallback() {
-	cur=$(cat "$state" 2>/dev/null)
-	case $cur in ''|*[!0-9]*) cur=100 ;; esac
+	cur=$(cat "$state" 2>/dev/null || echo 100)
+	case $cur in ''|*[!0-9-]*) cur=100 ;; esac
 	case $action in
 	up)   new=$((cur + step)) ;;
 	down) new=$((cur - step)) ;;
 	set)  new=$step ;;
+	*)    echo "usage: ${0##*/} [up|down|set N] [step]" >&2; return 1 ;;
 	esac
 	[ "$new" -gt 100 ] && new=100
-	[ "$new" -lt 10 ] && new=10
-	mkdir -p "$(dirname "$state")" 2>/dev/null || true
+	[ "$new" -lt 5 ] && new=5
+	mkdir -p "$state_dir" 2>/dev/null || true
 	printf '%s\n' "$new" >"$state"
-	out=$(xrandr --query 2>/dev/null |
-		sed -n 's/^\([^ ]*\) connected.*/\1/p' | sed -n 1p)
+	out=$(xrandr --query 2>/dev/null | sed -n 's/^\([^ ]*\) connected.*/\1/p' | sed -n '1p' || true)
 	[ -n "$out" ] || return 1
-	brightness=$(awk -v n="$new" 'BEGIN { printf "%.2f", 0.35 + 0.65 * n / 100 }')
-	xrandr --output "$out" --brightness "$brightness" || return 1
+	brightness=$(awk -v n="$new" 'BEGIN{v=0.20 + 0.80*n/100.0; if(v<0.2)v=0.2; printf "%.2f", v}')
+	xrandr --output "$out" --brightness "$brightness" >/dev/null 2>&1 || return 1
+	printf '%s' "$new"
 }
 
-lvl=$(cur_level)
+pct_out=""
+raw=$(ws_get_raw)
 
-if [ -z "$lvl" ]; then
-	gamma_fallback || { echo "${0##*/}: no backlight and no RandR output" >&2; exit 1; }
-	pct=$(cat "$state" 2>/dev/null)
-else
+if [ -n "$raw" ] && pair=$(parse_num_pair "$raw" 2>/dev/null); then
+	cur=$(printf '%s' "$pair" | awk '{print $1}')
+	max=$(printf '%s' "$pair" | awk '{print $2}')
+	case $cur in ''|*[!0-9.-]*) cur= ;; esac
+	case $max in ''|*[!0-9.-]*|0) max=100 ;; esac
+	# remember max if >100 (some drivers report range)
+	case $max in 100) ;; *) printf '%s\n' "$max" >"$max_state" 2>/dev/null || true ;; esac
+	if [ -z "$cur" ] && [ -f "$max_state" ]; then
+		max=$(cat "$max_state" 2>/dev/null || echo 100)
+	fi
+	case $cur in ''|*[!0-9.-]*) cur=100 ;; esac
 	case $action in
-	up)   pct=$((lvl + step)) ;;
-	down) pct=$((lvl - step)) ;;
-	set)  pct=$step ;;
-	*)
-		echo "usage: ${0##*/} [up|down|set] [percent]" >&2
-		exit 1
-		;;
+	up)   new=$(awk -v c="$cur" -v s="$step" -v m="$max" 'BEGIN{v=c+s; if(v>m)v=m; printf "%d", v}') ;;
+	down) new=$(awk -v c="$cur" -v s="$step" 'BEGIN{v=c-s; if(v<0)v=0; printf "%d", v}') ;;
+	set)  new=$(awk -v s="$step" -v m="$max" 'BEGIN{v=s; if(v<0)v=0; if(v>m)v=m; printf "%d", v}') ;;
+	*)    echo "usage: ${0##*/} [up|down|set N] [step]" >&2; exit 1 ;;
 	esac
-	[ "$pct" -gt 100 ] && pct=100
-	[ "$pct" -lt 0 ] && pct=0
-	doas /sbin/wsconsctl "display.brightness=$pct" >/dev/null || exit 1
+	if ws_set "$new"; then
+		# read back for accuracy
+		raw2=$(ws_get_raw); pair2=$(parse_num_pair "$raw2" 2>/dev/null || true)
+		if [ -n "$pair2" ]; then
+			rb=$(printf '%s' "$pair2" | awk '{print $1}')
+			rm=$(printf '%s' "$pair2" | awk '{print $2}')
+			case $rb in ''|*[!0-9.-]*) rb=$new ;; esac
+			case $rm in ''|*[!0-9.-]*|0) rm=$max ;; esac
+			new=$rb; max=$rm
+		fi
+		pct_out=$(awk -v c="$new" -v m="$max" 'BEGIN{ if(m<=0)m=100; printf "%d", (c*100.0/m)+0.5 }')
+	else
+		pct_out=$(gamma_fallback 2>/dev/null || true)
+	fi
+else
+	pct_out=$(gamma_fallback 2>/dev/null || true)
 fi
 
-if command -v notify-send >/dev/null 2>&1; then
-	notify-send -a brightness -h string:x-dunst-stack-tag:brightness \
-		-h "int:value:$pct" "brightness" "$pct%"
-fi
+[ -n "$pct_out" ] || { echo "${0##*/}: no backlight control available" >&2; exit 1; }
+notify_brightness "$pct_out"
+printf '%s%%\n' "$pct_out"
+exit 0

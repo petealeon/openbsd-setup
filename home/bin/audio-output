@@ -1,0 +1,185 @@
+#!/bin/sh
+# audio-output — choose audio output device (OpenBSD) via rofi/dmenu.
+#
+# Lists /dev/audioN devices with best-effort names from dmesg/boot, saves the
+# choice for future apps/scripts, and updates a short label for the bar.
+#
+# Notes:
+# - Most running apps keep using the device they opened; restart apps or
+#   re-login to move them.
+# - Sets ~/.config/audio-device (snd/N), AUDIODEVICE hint files, and tries
+#   sndioctl server.device when applicable.
+
+set -eu
+
+state_dir="$HOME/.config"
+dev_file="$state_dir/audio-device"
+name_file="$state_dir/audio-device-name"
+short_file="$state_dir/audio-device-short"
+
+mkdir -p "$state_dir" 2>/dev/null || true
+
+notify_msg() {
+	msg=$1
+	command -v notify-send >/dev/null 2>&1 || return 0
+	notify-send -a audio -h string:x-dunst-stack-tag:audio \
+		"audio output" "$msg" >/dev/null 2>&1 || true
+}
+
+chooser_cmd() {
+	if command -v rofi >/dev/null 2>&1; then
+		echo "rofi -dmenu -i -p 'audio output'"
+	elif command -v dmenu >/dev/null 2>&1; then
+		echo "dmenu -i -p 'audio output'"
+	else
+		echo ""
+	fi
+}
+
+get_dmesg() {
+	if [ -r /var/run/dmesg.boot ]; then
+		cat /var/run/dmesg.boot 2>/dev/null || true
+	fi
+	dmesg 2>/dev/null || true
+}
+
+audio_desc() {
+	n=$1
+	get_dmesg | awk -v n="$n" '
+		$1 == "audio" n || $1 == "audio" n ":" {
+			line=$0
+			sub(/^[^:]*:[[:space:]]*/, "", line)
+			gsub(/[[:space:]]+$/, "", line)
+			print line
+			exit
+		}
+		$1 == "uaudio" n-0 || $1 == "uaudio" (n-0) ":" {
+			# not usually same numbering; ignore
+		}
+	' | sed -n '1p'
+}
+
+# Better: map audioN -> uaudio/azalia line by "at uaudioX" relation where possible
+audio_desc2() {
+	n=$1
+	boot=/var/run/dmesg.boot
+	src=""
+	[ -r "$boot" ] && src=$boot
+	[ -n "$src" ] || return 0
+	# try direct "audioN at ..."
+	awk -v n="$n" '$1=="audio"n || $1=="audio"n":" {sub(/^[^:]*:[ ]*/,""); print; exit}' "$src" 2>/dev/null
+}
+
+short_label() {
+	dev=$1 desc=$2
+	lc=$(printf '%s %s' "$desc" "$dev" | tr 'A-Z' 'a-z')
+	case $lc in
+	*dock*) echo "Dock"; return ;;
+	*komplete*|*native*instruments*) echo "USB-NI"; return ;;
+	*uaudio*|*usb*|*headset*|*dac*|*interface*) echo "USB"; return ;;
+	*hdmi*|*displayport*|*dp*) echo "HDMI"; return ;;
+	*azalia*|*hdafg*|*hdaudio*|*speaker*|*realtek*|*alc*) echo "Int"; return ;;
+	esac
+	case $dev in
+	default) echo "Default" ;;
+	snd/*)
+		n=${dev#snd/}
+		case $n in ''|*[!0-9]*) echo "Audio" ;; 0) echo "snd0" ;; *) echo "snd$n" ;; esac
+		;;
+	*) echo "Audio" ;;
+	esac
+}
+
+pretty_label() {
+	dev=$1
+	case $dev in
+	default)
+		echo "Default (snd/0)"
+		return
+		;;
+	snd/*) n=${dev#snd/} ;;
+	/dev/audio*) n=${dev#/dev/audio} ; dev="snd/$n" ;;
+	*) echo "$dev"; return ;;
+	esac
+	case $n in ''|*[!0-9]*) echo "$dev"; return ;; esac
+	desc=$(audio_desc2 "$n")
+	[ -n "$desc" ] || desc=$(audio_desc "$n")
+	if [ -n "$desc" ]; then
+		echo "audio$n ($dev): $desc"
+	else
+		echo "audio$n ($dev)"
+	fi
+}
+
+list_devs() {
+	i=0
+	while [ "$i" -le 15 ]; do
+		if [ -c "/dev/audio$i" ] || [ -c "/dev/audioctl$i" ]; then
+			echo "snd/$i"
+		fi
+		i=$((i + 1))
+	done
+}
+
+current=$(sed -n '1p' "$dev_file" 2>/dev/null || echo default)
+[ -n "$current" ] || current=default
+
+chooser=$(chooser_cmd)
+menu=$(mktemp "${TMPDIR:-/tmp}/aomenu.XXXXXX")
+map=$(mktemp "${TMPDIR:-/tmp}/aomap.XXXXXX")
+trap 'rm -f "$menu" "$map"' EXIT INT TERM
+
+devs=$(list_devs | awk 'NF && !seen[$0]++')
+[ -n "$devs" ] || devs="snd/0"
+
+cur_label=$(pretty_label "$current")
+{
+	echo "current: $cur_label"
+	echo "note: running apps usually need restart to move"
+	echo "---"
+} >"$menu"
+: >"$map"
+
+printf '%s\n' "$devs" | while IFS= read -r dev; do
+	[ -n "$dev" ] || continue
+	label=$(pretty_label "$dev")
+	case $dev in snd/*) n=${dev#snd/} ;; *) n= ;; esac
+	desc=""
+	case $n in ''|*[!0-9]*) ;; *) desc=$(audio_desc2 "$n"); [ -n "$desc" ] || desc=$(audio_desc "$n"); ;; esac
+	short=$(short_label "$dev" "$desc")
+	printf '%s\t%s\t%s\n' "$label" "$dev" "$short" >>"$map"
+	printf '%s\n' "$label" >>"$menu"
+done
+
+if [ -z "$chooser" ]; then
+	echo "current: $current ($cur_label)"
+	awk -F '\t' '{print $2 "\t" $1}' "$map"
+	echo "Saved in $dev_file for new sessions/apps; restart running apps to switch." >&2
+	exit 0
+fi
+
+choice=$(cat "$menu" | sh -c "$chooser" || true)
+[ -n "$choice" ] || exit 0
+case $choice in
+current:*|"note:"*|"---") exit 0 ;;
+esac
+
+sel_dev=$(awk -F '\t' -v c="$choice" '$1==c {print $2; exit}' "$map")
+sel_short=$(awk -F '\t' -v c="$choice" '$1==c {print $3; exit}' "$map")
+sel_label=$choice
+if [ -z "$sel_dev" ]; then
+	sel_dev=$choice
+	sel_label=$(pretty_label "$sel_dev")
+	sel_short=$(short_label "$sel_dev" "")
+fi
+
+printf '%s\n' "$sel_dev" >"$dev_file"
+printf '%s\n' "$sel_label" >"$name_file"
+printf '%s\n' "${sel_short:-Audio}" >"$short_file"
+
+# Best-effort for sndiod-managed setups (harmless otherwise)
+sndioctl -q "server.device=$sel_dev" >/dev/null 2>&1 || true
+
+notify_msg "$sel_label
+saved for new apps/sessions (restart running apps to move audio)"
+exit 0

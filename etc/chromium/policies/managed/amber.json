@@ -1,7 +1,4 @@
 {
-  "ExtensionInstallForcelist": [
-    "ddkjiahejlhfcafbddmgiahcphecmpfh;https://clients2.google.com/service/update2/crx"
-  ],
   "AdsSettingForIntrusiveAdsSites": 2,
   "RestoreOnStartup": 1,
   "BookmarksBarEnabled": false,

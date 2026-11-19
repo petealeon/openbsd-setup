@@ -17,13 +17,16 @@ choice=$(printf '%s\n' \
 	'files' \
 	'music' \
 	'games' \
+	'wifi' \
+	'audio output' \
 	'download video' \
 	'keybindings' \
 	'screenshot region' \
 	'lock' \
 	'night light' \
 	'reload spectrwm' \
-	'suspend' \
+	'hibernate' \
+	'suspend (S3)' \
 	'reboot' \
 	'power off' \
 	'log out' |
@@ -35,13 +38,16 @@ windows)         rofi -show window -show-icons ;;
 files)           "$HOME/bin/files" ;;
 music)           "$HOME/bin/music" ;;
 games)           "$HOME/bin/games" ;;
+wifi)            "$HOME/bin/wifi" ;;
+'audio output')  "$HOME/bin/audio-output" ;;
 'download video') "$HOME/bin/video-download" ;;
 keybindings)     "$HOME/bin/keybinds" ;;
 'screenshot region') "$HOME/bin/screenshot region" ;;
 lock)            "$HOME/bin/lock" ;;
 'night light')   "$HOME/bin/nightlight toggle" ;;
 'reload spectrwm') xdotool key --clearmodifiers super+ctrl+r ;;
-suspend)         doas /usr/sbin/zzz ;;
+hibernate)       doas /usr/sbin/ZZZ ;;
+suspend\ \(S3\))  doas /usr/sbin/zzz ;;
 reboot)          doas /sbin/reboot ;;
 'power off')     doas /sbin/shutdown -p now ;;
 'log out')       pkill -TERM spectrwm ;;

@@ -1,23 +1,86 @@
 #!/bin/sh
-# music — start mpd if it is not running, then open ncmpcpp in st.
+# music — start mpd if needed, then open ncmpcpp in a terminal.
 #
-# mpd is a per-user daemon here (no system service): its state lives under
-# ~/.local/share/mpd, its config in ~/.config/mpd/mpd.conf.
+# mpd is a per-user daemon (no system service): state in ~/.local/share/mpd,
+# config in ~/.config/mpd/mpd.conf, library in ~/Music.
 
 set -u
 
 state="$HOME/.local/share/mpd"
-mkdir -p "$state/playlists" "$HOME/Music" "$HOME/.local/share/ncmpcpp" 2>/dev/null || true
+conf="$HOME/.config/mpd/mpd.conf"
+log="$state/log"
 
-if command -v mpc >/dev/null 2>&1; then
-	if ! mpc ping >/dev/null 2>&1; then
-		mpd "$HOME/.config/mpd/mpd.conf" >/dev/null 2>&1 || true
-		i=0
-		while [ "$i" -lt 20 ] && ! mpc ping >/dev/null 2>&1; do
-			sleep 0.1
-			i=$((i + 1))
-		done
+notify() {
+	if command -v notify-send >/dev/null 2>&1; then
+		notify-send -a music "music" "$1" >/dev/null 2>&1 || true
 	fi
+	return 0
+}
+
+mkdir -p "$state/playlists" "$HOME/Music" "$HOME/.local/share/ncmpcpp" \
+	"$HOME/.local/share/lyrics" 2>/dev/null || true
+: >"$log" 2>/dev/null || true
+
+if ! command -v ncmpcpp >/dev/null 2>&1; then
+	echo "music: ncmpcpp is not installed (pkg_add ncmpcpp)" >&2
+	notify "ncmpcpp is not installed"
+	exit 1
+fi
+if ! command -v mpd >/dev/null 2>&1; then
+	echo "music: mpd is not installed (pkg_add mpd mpc ncmpcpp)" >&2
+	notify "mpd is not installed"
+	exit 1
+fi
+if [ ! -f "$conf" ]; then
+	echo "music: missing config: $conf" >&2
+	notify "mpd config missing"
+	exit 1
 fi
 
-exec st -e ncmpcpp
+# Ensure mpd is running and reachable.
+mpd_ready() {
+	command -v mpc >/dev/null 2>&1 && mpc -q ping >/dev/null 2>&1
+}
+
+if ! mpd_ready; then
+	# Clear stale pid if it points to a dead process.
+	pidf="$state/pid"
+	if [ -f "$pidf" ]; then
+		oldpid=$(sed -n '1p' "$pidf" 2>/dev/null)
+		case $oldpid in
+		''|*[!0-9]*) rm -f "$pidf" 2>/dev/null || true ;;
+		*) kill -0 "$oldpid" 2>/dev/null || rm -f "$pidf" 2>/dev/null || true ;;
+		esac
+	fi
+	# Try to start the user daemon. Some setups need it launched once per login.
+	mpd "$conf" >>"$log" 2>&1 || true
+	i=0
+	while [ "$i" -lt 40 ] && ! mpd_ready; do
+		sleep 0.1
+		i=$((i + 1))
+	done
+fi
+
+if ! mpd_ready; then
+	echo "music: mpd is not responding" >&2
+	echo "  config: $conf" >&2
+	echo "  log:    $log" >&2
+	if [ -f "$log" ]; then
+		echo "  ---- mpd log (tail) ----" >&2
+		tail -n 20 "$log" >&2 || true
+		echo "  ------------------------" >&2
+	fi
+	echo "  debug: mpd --stdout --no-daemon \"$conf\"" >&2
+	notify "mpd not running (see $log)"
+	if [ -n "${DISPLAY:-}" ] && command -v st >/dev/null 2>&1; then
+		exec st -e sh -c 'echo "music: mpd failed to start"; echo; tail -n 40 "$HOME/.local/share/mpd/log" 2>/dev/null; echo; echo "Press Enter to close"; read r'
+	fi
+	exit 1
+fi
+
+# Prefer opening in st when under X so keybinding/menu works consistently.
+if [ -n "${DISPLAY:-}" ] && command -v st >/dev/null 2>&1; then
+	exec st -e ncmpcpp
+fi
+
+exec ncmpcpp

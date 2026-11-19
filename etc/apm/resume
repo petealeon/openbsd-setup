@@ -1,0 +1,19 @@
+#!/bin/sh
+# /etc/apm/resume — run after the system resumes.
+#
+# Best-effort restore for interfaces quiesced by /etc/apm/suspend.
+state_dir=/var/run/apm-suspend
+if [ -f "$state_dir/ifaces.up" ]; then
+	while IFS= read -r if; do
+		[ -n "$if" ] || continue
+		/sbin/ifconfig "$if" up >/dev/null 2>&1 || true
+	done < "$state_dir/ifaces.up"
+	rm -f "$state_dir/ifaces.up" 2>/dev/null || true
+fi
+
+# Nudge dhcpleased to renew/reacquire on resumed links (best effort).
+if command -v rcctl >/dev/null 2>&1; then
+	rcctl reload dhcpleased >/dev/null 2>&1 || rcctl restart dhcpleased >/dev/null 2>&1 || true
+fi
+
+exit 0

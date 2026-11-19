@@ -85,3 +85,24 @@
     foreground = "#e6ded0"
     timeout = 0
     frame_color = "#d90d10"
+
+# Short-lived overlays for hardware/media changes
+[volume]
+    appname = volume
+    timeout = 2
+    set_stack_tag = volume
+
+[brightness]
+    appname = brightness
+    timeout = 2
+    set_stack_tag = brightness
+
+[keyboard]
+    appname = keyboard
+    timeout = 2
+    set_stack_tag = kbdlight
+
+[audio]
+    appname = audio
+    timeout = 3
+    set_stack_tag = audio

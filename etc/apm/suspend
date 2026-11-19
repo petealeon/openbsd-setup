@@ -1,4 +1,23 @@
 #!/bin/sh
-# /etc/apm/suspend — lock the screen before the machine sleeps.
-# xidle handles SIGUSR1 by firing its lock program immediately.
+# /etc/apm/suspend — run before the system suspends.
+#
+# Lock the screen (xidle handles SIGUSR1 by firing its lock program).
 pkill -USR1 xidle 2>/dev/null || true
+
+# Best-effort quiesce: bring down wireless interfaces before sleep and record
+# them so /etc/apm/resume can restore. This can help avoid some resume issues
+# on certain hardware/drivers; harmless if interfaces are not present/up.
+state_dir=/var/run/apm-suspend
+mkdir -p "$state_dir" 2>/dev/null || true
+: >"$state_dir/ifaces.up" 2>/dev/null || true
+
+for if in iwm0 iwx0 iwn0 bwfm0 urtwn0 athn0 ath0; do
+	ifconfig "$if" >/dev/null 2>&1 || continue
+	# Record if it looks configured/active (has flags up or nwid/inet state worth restoring)
+	if ifconfig "$if" 2>/dev/null | grep -qE 'flags=.*<.*UP.*>|status: active|inet6? |nwid '; then
+		echo "$if" >>"$state_dir/ifaces.up" 2>/dev/null || true
+	fi
+	/sbin/ifconfig "$if" down >/dev/null 2>&1 || true
+done
+
+exit 0

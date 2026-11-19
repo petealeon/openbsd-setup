@@ -10,10 +10,10 @@ installer/`fdisk`/`installboot` behaviour.** The automated equivalent is
 as such wherever it appears.
 
 > **This is the one document that intentionally writes to a disk shared with
-> Windows.** `README.md` declares the *host's* `/dev/nvme0n1` read-only for
-> this project, and that rule still binds every script and agent here. This
-> runbook exists because a human, at the console, with the layout recorded and
-> a backup in hand, is the only thing allowed to partition that disk.
+> Windows.** Automated scripts/agents in this project must not partition or
+> modify disks; this runbook is for a human at the console who has verified
+> the target disk/layout, has backups/recovery media, and is prepared to stop
+> if anything does not match.
 
 Target hardware: ThinkPad T480s, UEFI, GPT, one NVMe disk, one 1080p panel,
 `iwm0` wifi, `em0` ethernet. Nothing here depends on the model except those
@@ -326,15 +326,15 @@ Leave the shell with `exit` to return to the installer prompt.
 | Start sshd by default | `yes` | |
 | Do you want the X Window System | `yes` | xenodm and the desktop need it |
 | Do you want to change the default console to com0 | `no` | that is the VM's setting, not metal's |
-| Setup a user | `peter` | must match the repo's default `--user` |
-| Full name | `Peter` | |
+| Setup a user | `<user>` | create your login user (member of `wheel`); pass the same name as `--user` to scripts |
+| Full name | `<full name>` | |
 | Password for user | *(strong)* | |
 | Allow root ssh login | `no` | the repo's sshd drop-in enforces this anyway |
 | Which disk is the root disk | `sd0` | **verify against the model string** |
 | Use (W)hole disk MBR, whole disk (G)PT, (O)penBSD area or (E)dit | `E` | the only safe answer on a shared disk |
 | Encrypt the root disk | `no` | partition-preserving encryption is a separate procedure |
 | Use (A)uto layout, (E)dit layout | `A` | auto layout inside the OpenBSD area only |
-| What timezone are you in | `Europe/Dublin` | match the repo's default; `?` lists zones |
+| What timezone are you in | `UTC` (example) | choose your timezone; `?` lists zones |
 | Location of sets | `cd0` | the USB image presents its sets as `cd0` |
 | Set name(s) | `all` | |
 | Continue without verification | `yes` | the image's signature was verified in §2.1 |
@@ -372,7 +372,7 @@ Notes that save an install:
 - `reinit` re-creates the GPT. It is the command that erases Windows. Never
   type it here.
 - If the OpenBSD entry already exists (a previous install — the repo's target
-  machine has one on `nvme0n1p5`), either select it with `O` at the installer's
+  machine has one, for example a vendor recovery partition), either select it with `O` at the installer's
   partition prompt to reinstall into that same area, or delete it in `fdisk`
   (`delete 5`, `write`, `quit`) and use its space with a new entry. Both wipe
   its contents; copy anything you need off it first.
@@ -823,7 +823,7 @@ doas rcctl enable pf        # if pf isn't already on
 PermitRootLogin no
 PasswordAuthentication no
 KbdInteractiveAuthentication no
-AllowUsers peter
+AllowUsers <user>
 ```
 
 This is a drop-in, included by `Include /etc/ssh/sshd_config.d/*.conf`. The repo
@@ -831,11 +831,11 @@ appends that `Include` line if it is absent, because OpenBSD's stock
 `sshd_config` does not have it.
 
 **Order of operations matters**: `PasswordAuthentication no` means you must
-already have a key in `~/.ssh/authorized_keys` and `AllowUsers peter` means any
+already have a key in `~/.ssh/authorized_keys` and an `AllowUsers` line listing only another account means your account loses SSH
 other account loses SSH. Do it while you still have console access:
 
 ```sh
-# as peter, with your key ready
+# as your user, with your key ready
 mkdir -p ~/.ssh && chmod 700 ~/.ssh
 cat >> ~/.ssh/authorized_keys      # paste, then Ctrl-D
 chmod 600 ~/.ssh ~/.ssh/authorized_keys
@@ -869,9 +869,6 @@ part of the theme; see §10.2.
 
 ```json
 {
-  "ExtensionInstallForcelist": [
-    "ddkjiahejlhfcafbddmgiahcphecmpfh;https://clients2.google.com/service/update2/crx"
-  ],
   "AdsSettingForIntrusiveAdsSites": 2,
   "RestoreOnStartup": 1,
   "BookmarksBarEnabled": false,
@@ -885,26 +882,20 @@ part of the theme; see §10.2.
 ```
 
 Chromium on OpenBSD is pledged and unveiled, so a dotfile cannot load an
-unpacked extension. Managed policy is the supported route, and
-`/etc/chromium/unveil.main` already exposes `/etc/chromium` read-only. The
-extension is **uBlock Origin Lite** because Chromium 156 removed Manifest V2
-and classic uBlock Origin can no longer load. The stage pre-warms the profile
-headless so the first real window already blocks ads; by hand:
+unpacked extension. Managed policy in `/etc/chromium/policies/managed` is
+honoured (`/etc/chromium/unveil.main` already exposes `/etc/chromium`
+read-only), but this setup does **not** force-install extensions: a forced MV3
+extension can appear “Managed by your administrator” and, if its service worker
+fails to register on OpenBSD, be unusable and unmodifiable.
 
-```sh
-mkdir -p ~/.config/chromium ~/.cache/chromium-runtime
-chmod 700 ~/.cache/chromium-runtime
-XDG_RUNTIME_DIR=~/.cache/chromium-runtime \
-  chrome --headless=new --disable-gpu --no-first-run \
-  --user-data-dir=~/.config/chromium about:blank &
-sleep 30; pkill -f 'headless=new'
-ls ~/.config/chromium/Default/Extensions/ddkjiahejlhfcafbddmgiahcphecmpfh
-```
-
-Then `chrome://policy` in the browser shows the active keys and
-`chrome://extensions` shows the pinned extension. Two policy files setting the
-same key are merged, not overridden; check for leftovers if a setting will not
-stick.
+After launch, install **uBlock Origin Lite** (MV3; classic uBlock Origin cannot
+load on Chromium 156+) from the Chrome Web Store and manage it in
+`chrome://extensions`. `chrome://policy` shows the active policy settings. If a
+previous forced install is stuck, close Chromium and remove the old managed
+extension state under `~/.config/chromium/Default/Extensions/...` (backup
+profile data first) before reinstalling it manually. Two policy files setting
+the same key are merged, not overridden; check for leftovers if a setting will
+not stick.
 
 ### 7.6 `/etc/apm/suspend`
 
@@ -1685,9 +1676,10 @@ restart. Read the logs weekly rather than trusting the cron.
 There is no snapshot filesystem here. What is worth keeping:
 
 ```sh
-doas tar -C / -czf /home/peter/backup/etc-$(date +%F).tgz etc
-doas tar -C /var -czf /home/peter/backup/var-db-$(date +%F).tgz db
-tar -C "$HOME" -czf /home/peter/backup/home-$(date +%F).tgz \
+doas tar -C / -czf "$HOME/backup/etc-$(date +%F).tgz" etc
+doas tar -C /var -czf "$HOME/backup/var-db-$(date +%F).tgz" db
+mkdir -p "$HOME/backup"
+tar -C "$HOME" -czf "$HOME/backup/home-$(date +%F).tgz" \
   --exclude=.cache --exclude=.config/chromium .
 ```
 
@@ -1727,7 +1719,7 @@ from OpenBSD.
 |---|---|
 | Backlight | `wsconsctl display.brightness` via `doas`; `~/bin/brightness` falls back to RandR gamma |
 | Audio | sndio; `sndioctl output.level`, `mixerctl` for hardware levels; no PulseAudio |
-| Suspend | `zzz`/lid (`machdep.lidaction=1`); `apmd` + `/etc/apm/suspend` locks first |
+| Suspend | `zzz`/`ZZZ` and lid action depend on `machdep.lidaction` and hardware; `apmd` + `/etc/apm/suspend` hooks run (review for your machine) |
 | Battery | `apm -l`, `apm -a`; bar hides it when `apm -a` is 255 |
 | Temperature | `hw.sensors.cpu0.temp0` |
 | Fan/CPU | `obsdfreqd`; `hw.perfpolicy` if you prefer manual |
@@ -1766,7 +1758,7 @@ from OpenBSD.
 | `pkg_add` refuses a stem | stem matches several packages | pin with the empty-version form (`rsync--minimal`) |
 | Gaming stage skipped | < 3 GiB free on `/usr/local` | grow `/usr/local` or install later with `--only=gaming` |
 | `doas` says "no rules" | `/etc/doas.conf` missing (installer never writes one) | §4.3 |
-| SSH login lost after applying the repo | `AllowUsers peter`, `PasswordAuthentication no` | console on `ttyC2`, add the key or relax the drop-in |
+| SSH login lost after applying the repo | `AllowUsers <user>`, `PasswordAuthentication no` | console on `ttyC2`, add the key or relax the drop-in |
 
 ---
 
@@ -1802,15 +1794,15 @@ none
 yes
 yes
 no
-peter
-Peter
-<peter password>
+<user>
+<Your Name>
+<user password>
 no
 sd0
 E          # then: edit 5 / offset / size / type OpenBSD / print / write / quit
 A
 no
-Europe/Dublin
+UTC
 cd0
 all
 yes
@@ -1820,7 +1812,7 @@ H
 ## Appendix B — the whole thing as commands
 
 For a machine that is already installed, networked and has the repo in
-`~/openbsd-setup` as `peter`:
+`~/openbsd-setup` as `<user>`:
 
 ```sh
 # as root, once
@@ -1828,7 +1820,7 @@ printf 'permit persist :wheel\n' > /etc/doas.conf && chmod 600 /etc/doas.conf
 syspatch
 fw_update
 
-# as peter
+# as <user>
 doas pkg_add git
 git clone <repo> ~/openbsd-setup
 cd ~/openbsd-setup

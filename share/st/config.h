@@ -6,7 +6,8 @@
  * font: see http://freedesktop.org/software/fontconfig/fontconfig-user.html
  */
 static char *font = "BlexMono Nerd Font:pixelsize=18:antialias=true:autohint=true";
-static int borderpx = 1;
+/* Internal padding between text and window border. */
+static int borderpx = 12;
 
 /*
  * What program is execed by st depends of these precedence rules:

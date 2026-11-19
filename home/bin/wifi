@@ -1,0 +1,251 @@
+#!/bin/sh
+# wifi — scan/connect helper for OpenBSD wireless interfaces (rofi/dmenu).
+#
+# Usage:
+#   wifi            interactive scan/connect/status helper
+#   wifi scan       scan and print results
+#   wifi status     show current interface/link state
+#
+# Security notes:
+# - Default is temporary join (not saved). Passphrase is prompted hidden and
+#   passed only to ifconfig; it is not written to disk unless you explicitly
+#   choose to save.
+# - Saving writes /etc/hostname.<if> (root:wheel, 0640) via doas; this stores
+#   the network key on disk as OpenBSD normally does. Never commit it to git.
+# - Prefer protected networks. Avoid joining open networks unless necessary.
+
+set -eu
+
+IFACE=${WIFI_IFACE:-}
+if [ -z "$IFACE" ]; then
+	for c in iwm iwx iwn athn bwfm urtwn ath0 bwi0 iwn0; do
+		if ifconfig "$c" >/dev/null 2>&1; then
+			IFACE=$c
+			break
+		fi
+		# try c0 form when base given without 0
+		case $c in *[0-9]) ;; *) if ifconfig "${c}0" >/dev/null 2>&1; then IFACE="${c}0"; break; fi ;; esac
+	done
+fi
+[ -n "$IFACE" ] || IFACE=iwm0
+
+notify() {
+	msg=$1
+	command -v notify-send >/dev/null 2>&1 || return 0
+	notify-send -a wifi -h string:x-dunst-stack-tag:wifi "Wi-Fi" "$msg" >/dev/null 2>&1 || true
+}
+
+have_rofi() { command -v rofi >/dev/null 2>&1; }
+have_dmenu() { command -v dmenu >/dev/null 2>&1; }
+
+choose() {
+	prompt=$1
+	if have_rofi; then
+		rofi -dmenu -i -p "$prompt"
+	elif have_dmenu; then
+		dmenu -i -p "$prompt"
+	else
+		return 1
+	fi
+}
+
+ask_secret() {
+	prompt=$1
+	if have_rofi; then
+		# -password hides input
+		rofi -dmenu -password -p "$prompt" -mesg "Passphrase not shown or saved unless you choose Save" </dev/null
+	else
+		# fallback: terminal prompt with stty -echo
+		tty_out=$(tty 2>/dev/null || echo /dev/tty)
+		printf '%s' "$prompt: " >"$tty_out"
+		stty -echo <"$tty_out" 2>/dev/null || true
+		IFS= read -r pass <"$tty_out" || pass=
+		stty echo <"$tty_out" 2>/dev/null || true
+		printf '\n' >"$tty_out"
+		printf '%s' "$pass"
+	fi
+}
+
+asroot() {
+	# run ifconfig/dhclient-related commands; prefer doas -n, fall back to doas
+	if doas -n "$@" >/dev/null 2>&1; then
+		return 0
+	fi
+	doas "$@" >/dev/null 2>&1
+}
+
+asroot_out() {
+	if out=$(doas -n "$@" 2>/dev/null); then
+		printf '%s\n' "$out"
+		return 0
+	fi
+	doas "$@" 2>/dev/null
+}
+
+show_status() {
+	ifconfig "$IFACE" 2>&1 || true
+}
+
+scan_raw() {
+	asroot /sbin/ifconfig "$IFACE" up 2>/dev/null || /sbin/ifconfig "$IFACE" up >/dev/null 2>&1 || true
+	/sbin/ifconfig "$IFACE" scan 2>/dev/null || ifconfig "$IFACE" scan 2>/dev/null || true
+}
+
+# Parse scan: emit "SSID<TAB>SEC<TAB>CHAN<TAB>SIGNAL"
+parse_scan() {
+	awk '
+		/nwid/ {
+			ssid=""; sec="open"; chan=""; sig=""
+			for(i=1;i<=NF;i++){
+				if($i=="nwid"){ s=$(i+1); gsub(/^"/,"",s); gsub(/"$/,"",s); if(s=="\"\""||s=="") next; ssid=s }
+				if($i=="chan"){ chan=$(i+1) }
+				if($i=="bssid"){ }
+				if($i=="%" || $i ~ /%$/){ gsub(/%/,"",$i); if($i ~ /^-?[0-9]+$/) sig=$i"%" }
+			}
+			line=$0
+			if(line ~ /privacy/ || line ~ /wpa/ || line ~ /802\.11i/ || line ~ /wpakey/) sec="secured"; else sec="open"
+			if(ssid!="") print ssid "\t" sec "\t" chan "\t" sig
+		}
+	' | awk -F'\t' '!seen[$1]++'
+}
+
+run_dhcp() {
+	if rcctl ls on 2>/dev/null | grep -qx dhcpleased || pgrep -x dhcpleased >/dev/null 2>&1; then
+		asroot /usr/sbin/rcctl reload dhcpleased 2>/dev/null || \
+		asroot /usr/sbin/rcctl restart dhcpleased 2>/dev/null || true
+	elif command -v dhclient >/dev/null 2>&1; then
+		asroot /sbin/dhclient "$IFACE" 2>/dev/null || true
+	fi
+}
+
+save_persistent() {
+	ssid=$1 mode=$2 pass=${3:-}
+	tmp=$(mktemp "${TMPDIR:-/tmp}/hostname.${IFACE}.XXXXXX") || return 1
+	{
+		case $mode in
+		open)
+			printf 'nwid "%s" -wpakey\n' "$ssid"
+			;;
+		secured)
+			printf 'nwid "%s" wpakey "%s"\n' "$ssid" "$pass"
+			;;
+		esac
+		printf 'inet autoconf\n'
+	} >"$tmp"
+	# install as root with restrictive perms (contains key for secured nets)
+	if doas sh -c 'install -m 640 -o root -g wheel "$1" "$2"' sh "$tmp" "/etc/hostname.$IFACE" >/dev/null 2>&1; then
+		rm -f "$tmp"
+		return 0
+	fi
+	rm -f "$tmp"
+	return 1
+}
+
+case ${1:-menu} in
+status) show_status; exit 0 ;;
+scan) scan_raw; exit 0 ;;
+menu) ;;
+-h|--help)
+	echo "usage: ${0##*/} [menu|scan|status]" >&2; exit 0 ;;
+*) echo "usage: ${0##*/} [menu|scan|status]" >&2; exit 1 ;;
+esac
+
+if ! have_rofi && ! have_dmenu; then
+	echo "wifi: no rofi/dmenu; showing status/scan" >&2
+	show_status
+	echo "---"
+	scan_raw
+	exit 0
+fi
+
+while :; do
+	raw=$(scan_raw)
+	parsed=$(printf '%s\n' "$raw" | parse_scan || true)
+	cur_nwid=$(ifconfig "$IFACE" 2>/dev/null | sed -n 's/.*nwid \(.*\) chan.*/\1/p' | sed -n '1p' | sed 's/^"//;s/"$//' || true)
+	cur_status=$(ifconfig "$IFACE" 2>/dev/null | sed -n 's/.*status: //p' | sed -n '1p' || true)
+
+	menu_tmp=$(mktemp "${TMPDIR:-/tmp}/wifimenu.XXXXXX")
+	{
+		[ -n "$cur_nwid" ] && echo "connected: $cur_nwid (${cur_status:-unknown})"
+		echo "action: rescan"
+		echo "action: status"
+		echo "action: disconnect"
+		echo "--- networks ---"
+		if [ -n "$parsed" ]; then
+			printf '%s\n' "$parsed" | while IFS=$(printf '\t') read -r ss sec chan sig; do
+				[ -n "$ss" ] || continue
+				label="open"
+				[ "$sec" = secured ] && label="secured"
+				extra=""
+				[ -n "$chan" ] && extra=" ch$chan"
+				[ -n "$sig" ] && extra="$extra $sig"
+				printf '%s  [%s%s]\n' "$ss" "$label" "$extra"
+			done
+		else
+			echo "(no networks found)"
+		fi
+	} >"$menu_tmp"
+
+	sel=$(choose "wifi $IFACE" <"$menu_tmp" || true)
+	rm -f "$menu_tmp"
+	[ -n "${sel:-}" ] || exit 0
+
+	case $sel in
+	"action: rescan") continue ;;
+	"action: status")
+		if command -v st >/dev/null 2>&1; then
+			st -e sh -c "ifconfig '$IFACE'; echo; route -n show 2>/dev/null | sed -n '1,20p'; echo; echo 'Press Enter to close'; read r" >/dev/null 2>&1 || show_status
+		else
+			show_status
+		fi
+		exit 0
+		;;
+	"action: disconnect")
+		asroot /sbin/ifconfig "$IFACE" -nwid -wpakey down 2>/dev/null || /sbin/ifconfig "$IFACE" -nwid -wpakey down >/dev/null 2>&1 || true
+		notify "Disconnected $IFACE"
+		exit 0
+		;;
+	connected:*|"--- networks ---"|"(no networks found)") continue ;;
+	esac
+
+	# extract SSID (strip trailing "  [..]")
+	ssid=$(printf '%s' "$sel" | sed 's/[[:space:]]*\[.*\]$//')
+	[ -n "$ssid" ] || continue
+
+	# determine security from parsed data (prefer exact match)
+	sec=$(printf '%s\n' "$parsed" | awk -F'\t' -v s="$ssid" '$1==s {print $2; exit}')
+	[ -n "$sec" ] || sec="secured"
+
+	if [ "$sec" = open ]; then
+		confirm=$(printf 'yes\ntemporary join\nno\n' | choose "Join OPEN network \"$ssid\"? (less secure)" || true)
+		case $confirm in yes|temporary\ join) ;; *) continue ;; esac
+		if asroot /sbin/ifconfig "$IFACE" nwid "$ssid" -wpakey up 2>/dev/null || \
+		   /sbin/ifconfig "$IFACE" nwid "$ssid" -wpakey up >/dev/null 2>&1; then
+			notify "Joining open network: $ssid"
+			run_dhcp
+			save=$(printf 'no\nyes (save /etc/hostname.%s)\n' "$IFACE" | choose "Save network for boot?" || true)
+			case $save in yes* ) save_persistent "$ssid" open && notify "Saved /etc/hostname.$IFACE" || notify "Could not save (needs doas/root)" ;; esac
+			exit 0
+		else
+			notify "Failed to join $ssid"
+			continue
+		fi
+	else
+		pass=$(ask_secret "Passphrase for $ssid" || true)
+		[ -n "${pass:-}" ] || continue
+		if asroot /sbin/ifconfig "$IFACE" nwid "$ssid" wpakey "$pass" up 2>/dev/null || \
+		   /sbin/ifconfig "$IFACE" nwid "$ssid" wpakey "$pass" up >/dev/null 2>&1; then
+			notify "Joining: $ssid"
+			run_dhcp
+			save=$(printf 'no\nyes (save to /etc/hostname.%s)\n' "$IFACE" | choose "Save for boot? (stores key root-only)" || true)
+			case $save in yes* ) save_persistent "$ssid" secured "$pass" && notify "Saved /etc/hostname.$IFACE" || notify "Could not save (needs doas/root)" ;; esac
+			# avoid keeping pass in shell var longer than needed
+			pass=
+			exit 0
+		else
+			pass=
+			notify "Failed to join $ssid (check passphrase)"
+			continue
+		fi
+	fi
+done

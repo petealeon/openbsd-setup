@@ -16,8 +16,20 @@ REPO=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 MODE=metal
 ONLY=
 DRY=0
-GUEST_USER=${GUEST_USER:-peter}
-GUEST_HOME=/home/$GUEST_USER
+
+# Default to the invoking user when run via doas/sudo or directly; fall back
+# to the first non-root login hint. --user is required if we cannot infer one.
+DEFAULT_USER=${SUDO_USER:-${DOAS_USER:-${LOGNAME:-${USER:-}}}}
+case ${DEFAULT_USER:-} in
+	""|root)
+		if command -v logname >/dev/null 2>&1; then
+			DEFAULT_USER=$(logname 2>/dev/null || true)
+		fi
+		;;
+esac
+case ${DEFAULT_USER:-} in ""|root) DEFAULT_USER= ;; esac
+GUEST_USER=${GUEST_USER:-$DEFAULT_USER}
+GUEST_HOME=
 STAGES="system packages terminal desktop browser gaming validate"
 
 usage() {
@@ -28,8 +40,11 @@ usage: install.sh [--metal|--vm] [--only=a,b] [--dry-run] [--user name] [--list]
   --vm           rehearsal VM: serial console getty, root SSH key
   --only=...     run just these stages (see --list)
   --dry-run      show every change without making it
-  --user name    desktop user (default: peter)
+  --user name    desktop user/home to configure (default: invoking user)
   --list         print the stage order and exit
+
+Environment:
+  GUEST_USER     same as --user
 EOF
 }
 
@@ -39,25 +54,22 @@ while [ $# -gt 0 ]; do
 	--vm)    MODE=vm ;;
 	--only)
 		ONLY=${2:-}
-		if [ $# -gt 1 ]; then shift; fi
+		[ $# -gt 1 ] && shift
 		;;
 	--only=*) ONLY=${1#--only=} ;;
 	--dry-run) DRY=1 ;;
 	--user)
 		GUEST_USER=${2:-}
-		GUEST_HOME=/home/$GUEST_USER
-		if [ $# -gt 1 ]; then shift; fi
+		[ $# -gt 1 ] && shift
 		;;
+	--user=*) GUEST_USER=${1#--user=} ;;
 	--list)
 		printf '%s\n' "$STAGES"
 		exit 0
 		;;
-	-h|--help)
-		usage
-		exit 0
-		;;
+	-h|--help) usage; exit 0 ;;
 	*)
-		printf 'unknown argument: %s\n\n' "$1" >&2
+		printf 'unknown argument: %s\n' "$1" >&2
 		usage >&2
 		exit 2
 		;;
@@ -65,35 +77,53 @@ while [ $# -gt 0 ]; do
 	shift
 done
 
+case ${GUEST_USER:-} in
+	""|root)
+		printf '%s\n' "error: cannot determine desktop user; pass --user <name>" >&2
+		usage >&2
+		exit 2
+		;;
+	*[!A-Za-z0-9._-]*)
+		printf 'error: invalid user name: %s\n' "$GUEST_USER" >&2
+		exit 2
+		;;
+esac
+GUEST_HOME=/home/$GUEST_USER
+
 . "$REPO/lib/common.sh"
 
-[ "$DRY" -eq 1 ] || need_root
-[ -d "$GUEST_HOME" ] || die "no such home directory: $GUEST_HOME"
-
-want_stage() {
-	[ -z "$ONLY" ] && return 0
-	case ",$ONLY," in
-	*",$1,"*) return 0 ;;
-	*) return 1 ;;
-	esac
-}
+if [ -z "$ONLY" ] && [ "$DRY" -eq 0 ]; then
+	need_root
+fi
 
 say "OpenBSD setup — mode=$MODE user=$GUEST_USER"
 [ "$DRY" -eq 1 ] && info "dry run: nothing is written"
 
-for stage in $STAGES; do
-	if ! want_stage "$stage"; then
-		info "skip $stage"
-		continue
-	fi
-	[ -f "$REPO/lib/stages/$stage.sh" ] || die "missing stage: $stage"
-	. "$REPO/lib/stages/$stage.sh"
-	"stage_$stage"
+run_stage() {
+	name=$1
+	file="$REPO/lib/stages/$name.sh"
+	[ -f "$file" ] || die "unknown stage: $name"
+	# shellcheck source=/dev/null
+	. "$file"
+	"stage_$name"
+}
+
+if [ -n "$ONLY" ]; then
+	IFS=, set -- $ONLY
+else
+	set -- $STAGES
+fi
+
+for stage; do
+	[ -n "$stage" ] || continue
+	run_stage "$stage"
 done
 
 say "done"
-case $MODE in
-metal) info "reboot to pick up sshd, xenodm, wscons and the st build" ;;
-vm)    info "reboot, then from the host: ./vm apply / ./vm ssh" ;;
-esac
-info "keybindings: Super+Shift+/    command menu: Super+space"
+if [ "$MODE" = vm ]; then
+	info "serial console: /etc/boot.conf -> com0 115200"
+	info "xenodm: rcctl ls on | grep xenodm"
+	info "after a login test: ./vm snap baseline"
+else
+	info "reboot, log in via xenodm, then run ./validate.sh as a sanity check"
+fi

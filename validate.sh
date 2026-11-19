@@ -52,9 +52,14 @@ grep -q '@theme "amber"' "$repo/home/.config/rofi/config.rasi" ||
 	bad "amber wallpaper missing"
 [ -f "$repo/share/st/patches/st-scrollback-0.9.2.diff" ] ||
 	bad "st scrollback patch missing"
-grep -q 'ddkjiahejlhfcafbddmgiahcphecmpfh' \
-	"$repo/etc/chromium/policies/managed/amber.json" ||
-	bad "uBlock Origin Lite is not force-installed"
+if grep -q 'ExtensionInstallForcelist' \
+	"$repo/etc/chromium/policies/managed/amber.json"; then
+	bad "Chromium policy still force-installs extensions (can be unmanageable/broken)"
+fi
+[ -f "$repo/home/bin/audio-output" ] ||
+	bad "audio-output helper missing"
+[ -f "$repo/home/bin/kbdlight" ] ||
+	bad "kbdlight helper missing"
 [ -f "$repo/home/bin/video-download" ] ||
 	bad "video-download helper missing"
 [ -f "$repo/home/bin/update-blocklist" ] ||

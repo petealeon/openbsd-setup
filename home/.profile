@@ -23,7 +23,31 @@ export GTK_THEME=Adwaita:dark
 # wraps it so xdg-open and super+shift+b skip the first-run terms dialog.
 export BROWSER="$HOME/bin/browser"
 export TERMINAL=st
-export TERM=st-256color
+
+# terminfo: prefer st-256color when installed, but fall back to xterm-256color
+# so colours still work in a vanilla st or before the rebuilt st is installed.
+if infocmp st-256color >/dev/null 2>&1; then
+	export TERM=st-256color
+else
+	export TERM=xterm-256color
+fi
 
 # No MPRIS on OpenBSD; players that look for one stay quiet.
 unset XDG_SESSION_TYPE 2>/dev/null || true
+
+# Persisted audio output hint (set by ~/bin/audio-output).
+if [ -z "${AUDIODEVICE:-}" ] && [ -f "$HOME/.config/audio-device" ]; then
+	AUDIODEVICE=$(sed -n '1p' "$HOME/.config/audio-device" 2>/dev/null)
+	case ${AUDIODEVICE:-} in ''|default) ;; *) export AUDIODEVICE ;; esac
+fi
+
+# ksh: load ~/.kshrc for interactive shells and keep persistent history.
+case $- in
+*i*)
+	[ -f "$HOME/.kshrc" ] && . "$HOME/.kshrc"
+	;;
+esac
+export HISTFILE="$HOME/.ksh_history"
+export HISTSIZE=5000
+export HISTCONTROL=ignoredups
+export SAVEHIST=$HISTSIZE

@@ -35,12 +35,19 @@ stage_system() {
 	run_shell "find /etc/ssh/sshd_config.d -type f -exec chmod 600 {} + 2>/dev/null || true"
 	run_shell "find /etc/hotplug -type f -exec chmod 755 {} + 2>/dev/null || true"
 
-	# ── sshd drop-in include ─────────────────────────────────────────────
+	# ── sshd drop-in include and user policy ─────────────────────────────
 	if ! grep -q 'sshd_config.d' /etc/ssh/sshd_config 2>/dev/null; then
 		run_shell "printf 'Include /etc/ssh/sshd_config.d/*.conf\n' |
 			cat - /etc/ssh/sshd_config >/tmp/sshd_config.new &&
 			mv /tmp/sshd_config.new /etc/ssh/sshd_config &&
 			chmod 600 /etc/ssh/sshd_config"
+	fi
+	# Set AllowUsers for the configured desktop user (portable + VM override).
+	if [ -f /etc/ssh/sshd_config.d/10-local.conf ]; then
+		run_shell "sed 's/^AllowUsers.*/AllowUsers '"'$GUEST_USER'"'/' /etc/ssh/sshd_config.d/10-local.conf >/tmp/10-local.conf.new && mv /tmp/10-local.conf.new /etc/ssh/sshd_config.d/10-local.conf && chmod 600 /etc/ssh/sshd_config.d/10-local.conf"
+	fi
+	if [ "$MODE" = vm ] && [ -f /etc/ssh/sshd_config.d/05-vm-root.conf ]; then
+		run_shell "sed 's/^AllowUsers.*/AllowUsers root '"'$GUEST_USER'"'/' /etc/ssh/sshd_config.d/05-vm-root.conf >/tmp/05-vm-root.conf.new && mv /tmp/05-vm-root.conf.new /etc/ssh/sshd_config.d/05-vm-root.conf && chmod 600 /etc/ssh/sshd_config.d/05-vm-root.conf"
 	fi
 
 	# ── services ─────────────────────────────────────────────────────────

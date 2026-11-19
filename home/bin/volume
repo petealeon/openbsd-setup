@@ -1,59 +1,196 @@
 #!/bin/sh
-# volume [up|down|mute|toggle] [step-percent]
+# volume [up|down|mute|unmute|toggle|set N] [step]
 #
-# Drives the sndio master output and shows a dunst progress bar. Bound to the
-# XF86 audio keys in ~/.spectrwm.conf. sndiokeys is deliberately *not*
-# installed: it would adjust the same mixer a second time for every keypress.
+# Adjust sndio output volume/mute and show a dunst progress overlay.
+# Prefers the saved audio device (~/.config/audio-device), then $AUDIODEVICE,
+# then the default sndio device.
 
-set -u
+set -eu
 
+cmd=${1:-toggle}
 step=${2:-5}
+conf_dir="$HOME/.config"
+dev_file="$conf_dir/audio-device"
 
 notify() {
-	pct=$(sndioctl -n output.level 2>/dev/null | sed -n 1p |
-		awk '{ printf "%d", $1 * 100 + 0.5 }')
-	[ -n "$pct" ] || pct=0
+	pct=$1 muted=$2
 	command -v notify-send >/dev/null 2>&1 || return 0
-	if [ "$(sndioctl -n output.mute 2>/dev/null | sed -n 1p)" = 1 ]; then
+	case $pct in ''|*[!0-9-]*) pct=0 ;; esac
+	[ "$pct" -lt 0 ] && pct=0
+	[ "$pct" -gt 100 ] && pct=100
+	if [ "$muted" = 1 ]; then
 		notify-send -a volume -h string:x-dunst-stack-tag:volume \
-			"volume" "muted"
+			-h "int:value:0" "volume" "muted ($pct%)" >/dev/null 2>&1 || true
 	else
 		notify-send -a volume -h string:x-dunst-stack-tag:volume \
-			-h "int:value:$pct" "volume" "$pct%"
+			-h "int:value:$pct" "volume" "$pct%" >/dev/null 2>&1 || true
 	fi
 }
 
-case ${1:-toggle} in
-up|down)
-	cur=$(sndioctl -n output.level 2>/dev/null | sed -n 1p)
-	case $cur in
-	''|*[!0-9.]*)
-		echo "${0##*/}: sndioctl unavailable" >&2
-		exit 1
-		;;
-	esac
-	if [ "$1" = up ]; then delta="$step"; else delta="-$step"; fi
-	new=$(awk -v c="$cur" -v d="$delta" 'BEGIN {
-		v = c + d / 100;
-		if (v > 1) v = 1;
-		if (v < 0) v = 0;
-		printf "%.2f", v
-	}')
-	sndioctl -q output.mute=0 || exit 1
-	sndioctl -q "output.level=$new" || exit 1
-	notify
-	;;
-mute|toggle)
-	cur=$(sndioctl -n output.mute 2>/dev/null | sed -n 1p)
-	if [ "$cur" = 1 ]; then
-		sndioctl -q output.mute=0 || exit 1
+is_num() { case ${1:-} in ''|*[!0-9.-]*) return 1 ;; *) return 0 ;; esac; }
+
+saved_dev() {
+	d=$(sed -n '1p' "$dev_file" 2>/dev/null || true)
+	case ${d:-} in ''|default) printf '%s' "" ;; *) printf '%s' "$d" ;; esac
+}
+
+dev_candidates() {
+	# unique, in preference order
+	awk 'NF && !seen[$0]++'
+}
+
+build_candidates() {
+	saved=$(saved_dev)
+	{
+		[ -n "$saved" ] && printf '%s\n' "$saved"
+		[ -n "${AUDIODEVICE:-}" ] && printf '%s\n' "$AUDIODEVICE"
+		printf '%s\n' ""
+		# common direct devices as fallback
+		i=0
+		while [ "$i" -le 7 ]; do
+			if [ -c "/dev/audio$i" ] || [ -c "/dev/audioctl$i" ]; then
+				printf 'snd/%s\n' "$i"
+			fi
+			i=$((i + 1))
+		done
+	} | dev_candidates
+}
+
+snd_get() {
+	key=$1 dev=${2:-}
+	if [ -n "$dev" ]; then
+		sndioctl -f "$dev" -n "$key" 2>/dev/null | sed -n '1p' || true
 	else
-		sndioctl -q output.mute=1 || exit 1
+		sndioctl -n "$key" 2>/dev/null | sed -n '1p' || true
 	fi
-	notify
+}
+
+snd_set() {
+	key=$1 val=$2 dev=${3:-}
+	if [ -n "$dev" ]; then
+		sndioctl -f "$dev" -q "$key=$val" >/dev/null 2>&1
+	else
+		sndioctl -q "$key=$val" >/dev/null 2>&1
+	fi
+}
+
+# Detect a working control target and read state.
+target=""
+level=""
+mute=""
+for d in $(build_candidates); do
+	l=$(snd_get output.level "$d")
+	m=$(snd_get output.mute "$d")
+	if [ -n "$l" ] || [ -n "$m" ]; then
+		target=$d
+		level=$l
+		mute=$m
+		break
+	fi
+done
+
+# fallback to default if nothing explicit worked
+if [ -z "$target$level$mute" ]; then
+	level=$(snd_get output.level "")
+	mute=$(snd_get output.mute "")
+	target=""
+fi
+
+is_num "$level" || level="1"
+case $mute in 1) mute=1 ;; *) mute=0 ;; esac
+
+to_pct() {
+	awk -v l="$1" 'BEGIN{v=l*100+0.5; if(v<0)v=0; if(v>100)v=100; printf "%d", v}'
+}
+
+clamp_level() {
+	awk -v v="$1" 'BEGIN{if(v<0)v=0; if(v>1)v=1; printf "%.3f", v}'
+}
+
+apply_pair() {
+	l=$1 m=$2 dev=$3 ok=0
+	# setting level while muted is fine; also set mute explicitly
+	if snd_set output.level "$l" "$dev"; then ok=1; fi
+	if snd_set output.mute "$m" "$dev"; then ok=1; fi
+	[ "$ok" -eq 1 ]
+}
+
+case $cmd in
+up|down)
+	case $step in ''|*[!0-9]*) step=5 ;; esac
+	delta=$step
+	[ "$cmd" = down ] && delta=-$step
+	new=$(awk -v c="$level" -v d="$delta" 'BEGIN{v=c + d/100.0; if(v<0)v=0; if(v>1)v=1; printf "%.3f", v}')
+	# expected behavior: changing volume unmutes
+	new_mute=0
+	# try target first, then fallbacks
+	applied=0
+	for d in "$target" $(build_candidates); do
+		[ "${d+x}" = x ] || continue
+		if apply_pair "$new" "$new_mute" "$d"; then applied=1; target=$d; break; fi
+	done
+	# last resort: try default explicitly if we were targeting a device
+	if [ "$applied" -eq 0 ] && [ -n "$target" ]; then
+		apply_pair "$new" "$new_mute" "" && { applied=1; target=""; }
+	fi
+	# read back
+	rlev=$(snd_get output.level "$target"); rmute=$(snd_get output.mute "$target")
+	is_num "$rlev" && level=$rlev || level=$new
+	case $rmute in 1) mute=1 ;; 0) mute=0 ;; *) mute=$new_mute ;; esac
+	;;
+mute)
+	new_mute=1
+	for d in "$target" $(build_candidates); do
+		[ "${d+x}" = x ] || continue
+		if snd_set output.mute "$new_mute" "$d"; then target=$d; break; fi
+	done
+	rmute=$(snd_get output.mute "$target")
+	case $rmute in 1) mute=1 ;; 0) mute=0 ;; *) mute=1 ;; esac
+	rlev=$(snd_get output.level "$target"); is_num "$rlev" && level=$rlev || true
+	;;
+unmute)
+	new_mute=0
+	for d in "$target" $(build_candidates); do
+		[ "${d+x}" = x ] || continue
+		if snd_set output.mute "$new_mute" "$d"; then target=$d; break; fi
+	done
+	rmute=$(snd_get output.mute "$target")
+	case $rmute in 0) mute=0 ;; 1) mute=1 ;; *) mute=0 ;; esac
+	rlev=$(snd_get output.level "$target"); is_num "$rlev" && level=$rlev || true
+	;;
+toggle)
+	if [ "$mute" -eq 1 ]; then new_mute=0; else new_mute=1; fi
+	for d in "$target" $(build_candidates); do
+		[ "${d+x}" = x ] || continue
+		if snd_set output.mute "$new_mute" "$d"; then target=$d; break; fi
+	done
+	rmute=$(snd_get output.mute "$target")
+	case $rmute in 1) mute=1 ;; 0) mute=0 ;; *) mute=$new_mute ;; esac
+	rlev=$(snd_get output.level "$target"); is_num "$rlev" && level=$rlev || true
+	;;
+set)
+	val=${2:-}
+	case $val in ''|*[!0-9]*) echo "usage: ${0##*/} set <0-100>" >&2; exit 1 ;; esac
+	[ "$val" -lt 0 ] && val=0
+	[ "$val" -gt 100 ] && val=100
+	new=$(awk -v p="$val" 'BEGIN{printf "%.3f", p/100.0}')
+	new_mute=0
+	for d in "$target" $(build_candidates); do
+		[ "${d+x}" = x ] || continue
+		if apply_pair "$new" "$new_mute" "$d"; then target=$d; break; fi
+	done
+	rlev=$(snd_get output.level "$target"); rmute=$(snd_get output.mute "$target")
+	is_num "$rlev" && level=$rlev || level=$new
+	case $rmute in 1) mute=1 ;; 0) mute=0 ;; *) mute=0 ;; esac
+	;;
+status)
+	: # just report
 	;;
 *)
-	echo "usage: ${0##*/} [up|down|mute|toggle] [step]" >&2
+	echo "usage: ${0##*/} [up|down|mute|unmute|toggle|set N] [step]" >&2
 	exit 1
 	;;
 esac
+
+notify "$(to_pct "$level")" "$mute"
+exit 0

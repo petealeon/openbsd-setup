@@ -1,446 +1,133 @@
-# OpenBSD setup
+# openbsd-setup
 
-Target: **OpenBSD 8.0 amd64**, rehearsed in a libvirt/KVM VM on Omarchy and later
-applied to a fresh install on the T480s. The repo, not the VM, is the deliverable.
+> **Unfinished work in progress. Not recommended for use unless** you understand OpenBSD, have read the scripts, have backups and console access, and are prepared to debug and adapt everything to your own hardware and preferences.
+>
+> This repository is tailored to specific hardware and evolves rapidly. It modifies `/etc`, user configuration, services, and packages, builds software from source, and can leave a system in a broken or inconvenient state. It is provided **as-is**, with no warranty or support implied. Use it at your own risk.
 
-## Hard rule
+`openbsd-setup` is an idempotent, staged setup for **OpenBSD 8.0 (amd64)** aimed at a lightweight X11 desktop (spectrwm, `st`, rofi, dunst, picom, etc.) with an "amber" theme. It was developed and tested primarily on a ThinkPad-class laptop, but many parts are hardware-specific and assumptions may not match your machine.
 
-The internal 2 TB disk (`/dev/nvme0n1`, Windows + the existing OpenBSD install on
-`nvme0n1p5`) is **read-only** for this project. Do not partition it, mount it,
-run `installboot` against it, or write disk images to it. The VM disk lives at
-`~/VMs/openbsd/openbsd.qcow2` on the USB Omarchy SSD.
+The repo is the source of truth: install/update behavior lives in scripts and overlays, not in a one-off manual system state.
 
-## Layout
+## What this provides
+
+- **Staged installer:** `install.sh` (`--metal` / `--vm`, `--dry-run`, `--only=...`, `--user <name>`) with idempotent stages in `lib/stages/`.
+- **Updater:** `update.sh` to reapply configuration/script fixes to an existing install without a full reinstall (does not run `syspatch`, `fw_update`, or `pkg_add`, and does not touch disks/bootloader).
+- **Self-update helper:** `~/bin/openbsd-setup-update` (installed with the desktop stage) to fetch upstream git changes and apply updates that have not been applied yet.
+- **Config overlays:** portable `etc/`, VM-specific `etc-vm/`, hardware-specific examples in `etc-hardware/`.
+- **User environment:** dotfiles, helper scripts, theme assets, and desktop/session wiring under `home/`.
+- **Terminal:** `st` built from pinned source/config in `share/st/`.
+- **Optional extras:** browser policy defaults, gaming/emulator stage (space-checked), DNS blocklist seed for `unwind`, hotplug/controller helpers, suspend/resume hooks and diagnostics.
+
+## Status and limitations
+
+- **WIP / experimental:** expect rough edges, changing behavior, and hardware-dependent issues.
+- **Hardware-specific behavior exists:** power/suspend, backlight/keyboard backlight keys, audio devices, wireless NICs, trackpad/touch behavior, and firmware needs vary by machine. Some workarounds (e.g. suspend/hibernate policy and diagnostics) reflect tested hardware and may not be appropriate elsewhere.
+- **Not a general OpenBSD installer replacement:** it does not partition disks, create filesystems, or install the bootloader. You must perform a normal OpenBSD installation first.
+- **Desktop choices are opinionated:** X11/spectrwm/xenodm, specific keybindings/helpers, and theme defaults.
+- **Validate on your system:** review diffs and test changes; keep a recovery path (console login, backups/snapshots where applicable).
+
+## Repository layout
 
 | Path | Purpose |
 |---|---|
-| `etc/` | portable `/etc` overlay (sshd/pf/doas/chromium policy, xenodm, unwind, hotplug, apm) |
-| `etc-vm/` | VM-only (`vio0`, serial console, root SSH) |
-| `etc-hardware/` | T480s-only (`iwm0`, `em0`, wscons) |
-| `home/` | dotfiles, `bin/` helpers, amber theme, wallpapers, RetroArch defaults |
-| `lib/stages/` | one script per install stage (`system`, `packages`, `terminal`, `desktop`, `browser`, `gaming`, `validate`) |
-| `share/st/` | pinned st source config, patches, `build.sh` |
-| `share/fonts/` | BlexMono Nerd Font + licence (vendored) |
-| `share/unwind/` | seed DNS blocklist for unwind |
-| `packages.txt` | packages (stems only, no pinned versions) |
-| `packages-gaming.txt` | emulators/cores (installed by the space-aware `gaming` stage) |
-| `packages-vm.txt` | VM-only packages (intentionally empty, see below) |
-| `install.sh` | the one front door: stages, `--dry-run`, `--only=` |
-| `provision.sh` | compatibility wrapper around `install.sh` |
-| `validate.sh` | `sshd -t`, `pfctl -n`, `doas -C`, shell syntax |
-| `vm` | host-side VM and config CLI |
-| `docs/install.conf.vm` | untested draft autoinstall response file |
-| `docs/wayland-ml4w-plan.md` | plan for a Wayland/ML4W-class desktop (not implemented) |
-| `docs/x11-ml4w-plan.md` | how far the X11 path goes toward ML4W, and why (not implemented) |
-| `docs/manual-install.md` | step-by-step manual install: Windows 11 dual-boot, packages, every config file, plan phases X1–X5 |
+| `install.sh` | Main staged installer (`--metal`, `--vm`, `--dry-run`, `--only`, `--user`) |
+| `update.sh` | Reapply repo-managed config/scripts to an existing install (no pkg/patch/disk changes) |
+| `lib/` | Shared helpers and install stages (`lib/stages/*.sh`) |
+| `etc/` | Portable `/etc` overlay (sshd/doas/pf/policy, xenodm, unwind, hotplug, apm, etc.) |
+| `etc-vm/` | VM-only overlay (serial console, example networking, VM sshd policy) |
+| `etc-hardware/` | Hardware-oriented example overlay (e.g. wireless/wscons examples) |
+| `home/` | Dotfiles, `bin/` helpers, themes, wallpapers, app configs |
+| `share/` | Vendored assets and build inputs (`st` source config/patches, fonts, blocklist seed) |
+| `packages.txt` | Base package list (stems; not version-pinned) |
+| `packages-gaming.txt` | Optional gaming/emulator packages (installed by `gaming` stage when space allows) |
+| `packages-vm.txt` | VM-only package additions (if any) |
+| `scripts/` | Maintenance/diagnostic helpers (e.g. suspend diagnostics, update helper copy) |
+| `docs/` | Additional notes (updating, diagnostics, manual/install planning docs) |
+| `vm` | Host-side helper for a libvirt/QEMU rehearsal VM workflow (optional/dev convenience) |
 
-## Host prep (Omarchy)
+## Prerequisites
 
-```sh
-sudo pacman -S qemu-full libvirt virt-install virt-manager edk2-ovmf rsync
-sudo systemctl enable --now libvirtd
-sudo usermod -aG libvirt,kvm "$USER"     # log out and back in
-sudo virsh net-start default
-sudo virsh net-autostart default
-```
+- A working **OpenBSD 8.0 amd64** installation (fresh install recommended for experimentation), with network access and console access.
+- A non-root user account (typically in `wheel`) to use as the desktop user.
+- Root privileges via `doas`/root shell to apply system changes.
+- `git` if you want to clone/update from this repository on the target machine.
 
-If `ufw` is active, allow DHCP/DNS on `virbr0` and routed traffic in:
+Read and adapt `etc-hardware/`, `etc-vm/`, and network-related files before applying on real hardware. Do **not** commit secrets (Wi-Fi passphrases, keys, passwords, tokens).
 
-```sh
-sudo ufw allow in on virbr0 to any port 67 proto udp
-sudo ufw allow in on virbr0 from 192.168.122.0/24 to 192.168.122.1 port 53
-sudo ufw route allow in on virbr0
-```
+## Install
 
-`sg` is not installed; run individual libvirt commands as
-`printf '...\n' | newgrp libvirt`.
+1. **Install OpenBSD normally** (disk layout, bootloader, users, networking as appropriate for your machine). Keep a way to recover (console, another machine, backups).
+2. **Get the repo onto the machine** (example):
+   ```sh
+   # as root or with doas/pkg_add
+   pkg_add git
+   # as your user
+   git clone https://github.com/petealeon/openbsd-setup.git ~/openbsd-setup
+   cd ~/openbsd-setup
+   ```
+3. **Review before running.** Inspect `install.sh`, `lib/stages/*`, `etc*`, and `home/` (especially sshd/doas/pf/network/suspend settings) and adjust for your environment.
+4. **Preview and run** (as root, from the repo directory):
+   ```sh
+   ./install.sh --list
+   sh ./install.sh --metal --dry-run --user <your-user>
+   doas ./install.sh --metal --user <your-user>
+   ```
+   - Use `--vm` instead of `--metal` for the rehearsal-VM overlay/profile.
+   - If `--user` is omitted, scripts try to infer the invoking user (via `doas`/`sudo` context) and will error rather than guess dangerously when run in ambiguous contexts.
+   - Use `--only=<stage,...>` to run selected stages (e.g. `desktop`, `terminal`, `system`).
+5. **Reboot and log in** via xenodm (or your chosen flow) and verify behavior. Re-run `./validate.sh` on OpenBSD for config/service checks where applicable.
 
-## Create the VM
+`install.sh` is intended to be re-runnable; replaced user files are backed up under `~/.config-backup-<timestamp>/` by desktop-stage logic.
 
-Download the ISO to `~/VMs/openbsd/install80.iso` (or set
-`OPENBSD_VM_DIR`/`OPENBSD_VM_ISO`), then:
+## Updating an existing install
 
-```sh
-cd ~/Work/openbsd-setup
-./vm new
-```
-
-`vm new` builds: 4 vCPU, 6 GiB RAM, 40 GiB qcow2, `q35` + non-Secure-Boot
-OVMF, virtio disk/net, VGA + SPICE, 115200 serial console, and a pinned MAC
-(`52:54:00:8c:51:3a`) so the DHCP reservation survives rebuilds.
-
-The OVMF varstore is created as **qcow2** (`~/VMs/openbsd/OVMF_VARS.qcow2`).
-libvirt refuses internal snapshots when pflash NVRAM is raw.
-
-Add the DHCP reservation once:
+From the repo directory on the target machine:
 
 ```sh
-virsh --connect qemu:///system net-update default add ip-dhcp-host \
-  '<host mac="52:54:00:8c:51:3a" ip="192.168.122.50"/>' --live --config
+doas sh ./update.sh --user <your-user>
+# optional: --skip-terminal (skip rebuilding st), --dry-run
 ```
 
-## Install OpenBSD
+`update.sh` reapplies **desktop**, **system**, and (optionally) **terminal** stages in a safe order. It does **not** run `syspatch`, `fw_update`, or `pkg_add`, and does **not** modify disk/bootloader configuration. Re-run relevant `install.sh` stages if packages/patches/firmware are required.
 
-Either open the console in virt-manager, or use the serial console:
+After updates, log out/in to xenodm (or reboot) and restart affected apps/terminals so session, WM, services hooks, and rebuilt binaries take effect. See `docs/UPDATING.md` for details.
+
+## Self-update from git (recommended once published)
+
+`home/bin/openbsd-setup-update` (installed to `~/bin` by the desktop stage) can fetch upstream changes and apply only what has not been applied yet:
 
 ```sh
-./vm console
+# first-time clone + apply (example)
+~/bin/openbsd-setup-update --bootstrap --repo ~/openbsd-setup --user <your-user>
+
+# later: check or apply updates
+~/bin/openbsd-setup-update --check --repo ~/openbsd-setup --user <your-user>
+~/bin/openbsd-setup-update --repo ~/openbsd-setup --user <your-user>
+# optional: --skip-terminal
 ```
 
-The installer's bootloader starts on VGA. To follow the install over the serial
-console, interrupt it at the `boot>` prompt and type:
+Behavior notes:
+- Requires `git` and `doas`, and expects a clean working tree (it refuses to run with local uncommitted changes).
+- Fast-forwards the local checkout from the configured remote/branch (no merge of divergent histories).
+- Records the last successfully applied commit in `${XDG_STATE_HOME:-$HOME/.local/state}/openbsd-setup/last-applied` so failed runs do not advance state.
+- Runs `doas sh ./update.sh ...`; log out/in or reboot as needed after applied changes.
 
-```
-set tty com0
-boot
-```
+## Safety notes
 
-(The installed system gets `/etc/boot.conf` from `etc-vm/`, so later boots go
-to `com0` by themselves.)
+- **Review before applying:** this repo manages sensitive areas (`/etc/ssh`, `doas.conf`, `pf.conf`, `resolv.conf` handling via unwind/resolvd flow, service enablement, login/session files). Treat it as code you are deploying to your machine.
+- **No secrets in git:** keep credentials out of the repo. `secrets/` is gitignored for local-only material (except its `.gitignore`); still verify before committing or publishing.
+- **Hardware/network specifics:** example NIC/interface names, firmware needs, and device paths differ. Confirm wireless config files and permissions locally; never store passphrases in tracked files.
+- **Idempotent, not harmless:** re-running can overwrite managed files (with backups for user files where implemented) and change system behavior.
 
-Answers (verified over serial, OpenBSD 8.0):
-
-| Prompt | Answer |
-|---|---|
-| `(I)nstall` | `I` |
-| terminal type | `vt220` |
-| system hostname | `openbsd` |
-| network interface | `vio0` |
-| IPv4 for `vio0` | `autoconf` |
-| IPv6 for `vio0` | `none` |
-| DNS domain / nameservers | empty / `none` |
-| root password | generated, see `secrets/vm-passwords` |
-| start sshd | `yes` |
-| X Window System | `yes` |
-| default console `com0` | `yes`, `115200` |
-| setup a user | `peter`, full name `Peter`, in `wheel` |
-| allow root ssh login | `no` |
-| root disk | `sd0` |
-| disk layout | **`g` (GPT)** |
-| encryption | `no` |
-| auto layout | `A` |
-| timezone | `Europe/Dublin` |
-| sets location | `cd0`, pathname empty, set names `all` |
-| verification | continue without verification |
-| final | `H` (halt) |
-
-**Do not answer `whole` to the whole-disk question**: that selects MBR, which
-leaves no ESP and produces an unbootable UEFI disk. Answer `g`.
-
-OpenBSD `halt` leaves the libvirt domain running, so finish from the host:
+## Development / validation
 
 ```sh
-virsh --connect qemu:///system destroy openbsd
-virsh --connect qemu:///system change-media openbsd sda --eject --config
-./vm up
+make check      # shell syntax + config sanity (safe on non-OpenBSD hosts in static mode)
+sh ./validate.sh
 ```
 
-The system now boots from `vda` via UEFI and has `192.168.122.50` from DHCP.
+Some checks are only meaningful on OpenBSD. A libvirt/QEMU rehearsal workflow is available via `vm` for contributors who want to test changes in a disposable VM; treat `vm` as optional/dev tooling and adjust paths/network settings for your environment.
 
-## First bootstrap
+## License / attribution
 
-```sh
-ssh-copy-id peter@192.168.122.50
-./vm bootstrap
-```
-
-The installer does **not** create `/etc/doas.conf`. The first `vm bootstrap`
-copies the repo into the guest, then stops and prints the exact fix: log in on
-the serial console as root (`./vm console`) and run
-
-```sh
-install -m 600 /home/peter/openbsd-setup/etc/doas.conf /etc/doas.conf
-```
-
-Run `./vm bootstrap` again; it asks for `peter`'s password once (doas), then
-installs packages, overlays `/etc` and `home/`, adds the `sshd` drop-ins, the
-serial getty, enables `xenodm`, installs the root SSH key, validates, and
-reloads `sshd`. After that `ssh root@openbsd` works and `vm apply` needs no
-password.
-
-Log in on the VGA console once to confirm xenodm → spectrwm, then snapshot:
-
-```sh
-./vm snap baseline
-```
-
-## Daily loop
-
-```sh
-./vm ssh                 # shell on the guest
-./vm run 'make'          # one command in the guest
-./vm apply               # push etc/ + etc-vm/ + home/, validate, reload sshd
-./vm capture             # pull tracked guest config back into the repo
-./vm snap before-update  # internal snapshot (qcow2 NVRAM, disk)
-./vm status              # state + lease
-./vm console             # serial console (Ctrl-])
-```
-
-Edit on the host, `vm apply`, test, commit. If you configure something by hand
-in the guest, `vm capture` brings it back into the repo.
-
-Snapshots:
-
-```sh
-virsh --connect qemu:///system snapshot-list openbsd
-virsh --connect qemu:///system snapshot-revert openbsd baseline
-virsh --connect qemu:///system snapshot-delete openbsd before-update
-```
-
-`vm down` shuts down via ACPI; `vm off` is a hard power off (necessary after a
-guest `halt`, which leaves the domain "running").
-
-### Console pointer grab
-
-The SPICE console grabs the pointer because OpenBSD's `ums` driver has no
-absolute-pointer support (no SPICE agent either). While grabbed, the window
-title says *"Press Shift+F12 to release pointer."*
-
-This host is configured to use **Shift+F12**. virt-manager's default is
-Ctrl+Alt, which collides with other things; to restore it:
-
-```sh
-gsettings reset org.virt-manager.virt-manager.console grab-keys
-```
-
-If any grab ever swallows the keyboard: `Ctrl+Alt+F2` (VT switch, handled by
-the kernel), log in, `pkill -f virt-manager`, then `Ctrl+Alt+F1` back to the
-desktop.
-
-## Install on bare metal (OpenBSD 8.0, T480s target)
-
-The repo is the deliverable and `install.sh` is idempotent (safe to re-run; it
-backs up replaced user files to `~/.config-backup-<timestamp>/`). The run needs
-network access (patches, packages, and the `st` source tarball) and local
-console access. It configures `/etc`, installs packages, builds `st`, and sets
-up the desktop user’s home — it does **not** partition disks or change the
-bootloader. Do not run these steps against `nvme0n1`/its existing OpenBSD
-install; this is for the fresh target OpenBSD install.
-
-### 0. Prepare access to this (private) repo
-
-**On a secondary system (read this first):** the repo is private, so the target
-OpenBSD machine must authenticate to fetch it. Pick one method and have it
-ready before/during the OpenBSD install.
-
-- **Option A — HTTPS with a GitHub token (simplest):** on GitHub, create a
-  fine-grained personal access token with **read-only Contents** access to this
-  repo (or a classic PAT with `repo` scope). Treat it like a password. On
-  OpenBSD, `git clone` will prompt for credentials: use your GitHub username and
-  the token as the password. To avoid leaving the token in `.git/config`, do
-  **not** put it in the clone URL; if you want it cached for a short time, use
-  `git config --global credential.helper cache` (in-memory) before cloning.
-  Revoke or restrict the token when you’re done.
-- **Option B — SSH deploy key (clean for a single machine):** on the OpenBSD
-  machine generate a key, `ssh-keygen -t ed25519 -C "openbsd-t480s" -f ~/.ssh/id_ed25519`,
-  show the public key with `cat ~/.ssh/id_ed25519.pub`, and add it on GitHub as
-  a **read-only Deploy key** for this repository (Repo → Settings → Deploy
-  keys). Then clone over SSH (Option B below). Trust GitHub’s host key on first
-  use (`ssh -T git@github.com` or let `git clone` prompt; to pre-seed,
-  `mkdir -p ~/.ssh && ssh-keyscan github.com >> ~/.ssh/known_hosts`).
-- **Option C — copy the repo without GitHub access from OpenBSD:** on a system
-  that already has the repo, transfer it to the target (e.g.
-  `tar czf - -C ~ openbsd-setup | ssh <user>@<openbsd-ip> 'tar xzf - -C ~'`,
-  or `scp -r`, `rsync`, or a USB drive). You can skip installing `git` on the
-  target if you only need to run the installer.
-
-Repo URLs (once access is set up): HTTPS
-`https://github.com/petealeon/openbsd-setup.git`, SSH
-`git@github.com:petealeon/openbsd-setup.git`.
-
-### 1. Prepare the target OpenBSD install
-
-1. **Fresh install:** OpenBSD 8.0 amd64 with the **X sets** installed. Create
-   your user during install and add them to `wheel` (this guide assumes
-   `peter`; pass `--user <name>` to `install.sh` if different). Log in on the
-   console.
-2. **Network:** bring up a working connection before cloning/installing.
-   - *Ethernet:* as root, `echo dhcp > /etc/hostname.em0 && sh /etc/netstart em0`.
-   - *Wi-Fi:* `cp /path/if/you/have/it/etc-hardware/hostname.iwm0.example /etc/hostname.iwm0`
-     **or** (once the repo is present) `cp ~/openbsd-setup/etc-hardware/hostname.iwm0.example /etc/hostname.iwm0`,
-     edit it to set your SSID/passphrase (keep it out of git), then
-     `sh /etc/netstart iwm0`. If firmware is missing, `fw_update iwm` may be
-     needed (wired helps to bootstrap). `hostname.em0` is also provided in
-     `etc-hardware/` and applied by the installer.
-   - Verify: `ping -c 1 cdn.openbsd.org` (or another host).
-3. **Get the repo onto the machine** (as your user, e.g. in `~`):
-   - Install git if needed: `pkg_add git` (as root).
-   - **HTTPS (Option A):**
-     `git clone https://github.com/petealeon/openbsd-setup.git ~/openbsd-setup`
-     (enter username + token when prompted).
-   - **SSH (Option B):** after adding your deploy/user key on GitHub,
-     `git clone git@github.com:petealeon/openbsd-setup.git ~/openbsd-setup`.
-   - **Copy (Option C):** place the repo at `~/openbsd-setup`.
-   - `cd ~/openbsd-setup`.
-4. **Root access for the installer:** `install.sh` must run as root. Use a root
-   shell (`su -`, then `cd /home/<user>/openbsd-setup`) **or** `doas`. On a
-   fresh install `/etc/doas.conf` may not exist; to enable `doas` once as root:
-   `echo 'permit persist :wheel' > /etc/doas.conf && chmod 600 /etc/doas.conf`
-   (the repo manages it afterward). If your username is not `peter`, run with
-   `--user <name>`.
-
-### 2. Run the installer
-
-```sh
-cd ~/openbsd-setup
-./install.sh --list                 # stage order
-./install.sh --metal --dry-run      # preview (no root required)
-doas ./install.sh --metal           # or run from a root shell
-```
-
-Stages (all idempotent): `system` (syspatch/fw_update, `/etc` + hardware
-overlay, xenodm/apmd/hotplugd + unwind/resolvd DNS backstop), `packages`
-(`pkg_add`), `terminal` (builds st 0.9.2 and installs BlexMono), `desktop`
-(dotfiles, amber theme, wallpapers, `~/bin`), `browser` (Chromium policy and
-uBlock Origin Lite), `gaming` (RetroArch/emulators, space-aware — skipped with a
-warning if `< ~3 GiB` free in `/usr/local`), `validate`.
-
-Notes:
-- Keep network up for the whole run. `syspatch` may install a kernel update.
-- The `system` stage enables `unwind`/`resolvd` and points DNS at `127.0.0.1`;
-  if name resolution or package fetches fail after that, check
-  `rcctl check resolvd unwind`, `/etc/resolv.conf`, and connectivity, then
-  re-run.
-- Re-run selectively as needed: e.g. `doas ./install.sh --metal --only=gaming`,
-  `--only=terminal`, `--only=desktop`.
-
-### 3. Reboot and verify
-
-```sh
-reboot
-```
-
-Log in via **xenodm** to the spectrwm (amber) session. Quick checks:
-`Super+space` command menu, `Super+Shift+/` keybindings; terminal (`st`);
-network/audio/brightness/media keys; browser `Super+Shift+B` and adblock
-(`chrome://extensions`, `chrome://policy`); video download `Super+Shift+D`
-(clipboard route: `Ctrl+L`, `Ctrl+C` in Chromium, then `Super+Shift+D`);
-music `Super+Shift+M` (mpd/ncmpcpp); gaming `Super+Shift+G` (ROMs in
-`~/Games/roms/<system>/`, BIOS in `~/Games/bios/`) and plug in a wired Xbox
-One/Series controller to confirm detection. You can run `./validate.sh` on
-OpenBSD for config/service checks.
-
-Root SSH stays disabled (`PermitRootLogin no`, `AllowUsers peter` per repo
-policy) — keep console access until you’ve confirmed you can log in as
-expected. Reboot after install to pick up sshd, xenodm, wscons, and any kernel
-updates. If the hardware overlay overwrote a local tweak (e.g. `wsconsctl.conf`
-or you want different network files), reapply it and re-run the relevant stage.
-
-`st` is compiled from upstream 0.9.2 with the scrollback, scrollback-mouse and
-clipboard patches; its palette and font live in `share/st/config.h`. The alpha
-patch does **not** apply to 0.9.2, so terminal transparency is picom's job
-(`~/.config/picom/picom.conf`).
-
-## Browser
-
-Chromium's launcher on OpenBSD is `chrome` (`BROWSER=chrome` in `~/.profile`);
-`chromium` is only the package name. It is pledged and unveiled, so dotfiles
-cannot load an extension into it — but managed policy works, and
-`/etc/chromium/unveil.main` already exposes `/etc/chromium` read-only.
-
-The browser stage installs `etc/chromium/policies/managed/amber.json`, which
-force-installs **uBlock Origin Lite** from the Web Store and turns off the
-noise: no bookmarks bar, no default-browser nag, no background mode, no sync
-prompts, no credit-card autofill. Chromium calls home for the extension on its
-next launch; the stage pre-warms the profile headless so the first real window
-already blocks ads, and says so — or warns that it was offline.
-
-It is the *Lite* build because Chromium 156 dropped Manifest V2 and classic
-uBlock Origin can no longer load. To see it in the browser:
-`chrome://extensions` (the policy-installed one is pinned, not removable) and
-`chrome://policy` for the active settings.
-
-Downloading from the browser is Omarchy's flow, without an extension:
-
-| Key | What it does |
-|---|---|
-| `Super+Shift+B` | `~/bin/browser`: Chromium with `--no-first-run`, so a fresh profile skips the "Additional Terms of Service" dialog (no policy covers it) |
-| `Super+Shift+D` | `~/bin/video-download`: reads the focused tab's URL and runs `yt-dlp` in an `st` window, best video ≤1080p muxed to mp4 in `~/Videos/Downloads` |
-| `Super+Shift+C` | `~/bin/copy-url`: copies the focused tab's URL to the clipboard (restoring what was there) |
-
-`video-download` reads the clipboard first, because that is the route that
-always works: `Ctrl+L`, `Ctrl+C` in Chromium, then `Super+Shift+D`. Only when
-the clipboard holds no URL does it fall back to driving the browser with
-`xdotool` (`copy-url`), since a sandboxed, unveiled browser cannot be asked
-which page it is on. It also accepts a URL argument, so terminal downloads use
-the same helper.
-
-Caveat from the rehearsal VM: the `xdotool` fallback could not be exercised
-there at all — the wsfb X server delivered no synthetic key events, not even
-to `st`, so `Super+Shift+C` is untested until it runs on the T480s. The
-clipboard route and the download itself are verified.
-
-`yt-dlp` gets a JavaScript runtime (`deno`) because YouTube's player needs one
-to solve its challenges; without it yt-dlp reports most videos as
-"unavailable". Verified on OpenBSD 8.0: a YouTube URL downloads and muxes to
-mp4 with the bundled `ffmpeg`.
-
-## DNS, music, gaming
-
-Adblocking is layered: the browser uses the managed uBlock Origin Lite policy,
-and `system` enables **unwind** (validating resolver) with a local blocklist
-(`/var/db/unwind.block`, seeded from `share/unwind/`) and points
-`/etc/resolv.conf` at `127.0.0.1` (with `resolvd` learning upstreams). Refresh
-the list with `doas ~/bin/update-blocklist` (network required).
-
-Music is per-user **mpd** (sndio) + **ncmpcpp**: `~/.config/mpd/mpd.conf`,
-library in `~/Music`, started from `~/.xsession`; `Super+Shift+M` opens
-`~/bin/music`.
-
-Retro gaming is installed by `--only=gaming` when space allows: RetroArch +
-cores/standalone emulators, a default `~/.config/retroarch/retroarch.cfg`
-(SDL2/sndio, autoconfig on), and ROM/BIOS layout under
-`~/Games/roms/<system>/` and `~/Games/bios/` (`Super+Shift+G` → `~/bin/games`).
-**Wired Xbox One/Series controllers** should work immediately when plugged in:
-`/etc/hotplug/attach` (run by `hotplugd`) chowns `/dev/uhid*` to the console
-user, and RetroArch/SDL2 use SDL's built-in gamecontroller mappings with
-autoconfig enabled. Verify pad detection and per-title tweaks on real hardware
-(VM USB passthrough is the rehearsal path).
-
-## Gotchas worth remembering
-
-- `pkg_add -l` does **not** skip `#` comments; `lib/stages/packages.sh`
-  filters them into a temporary list. If a stem matches more than one
-  package, pin it with the empty-version form (`rsync--`) instead of a
-  version, which would break the next `pkg_add -u`.
-- st's Makefile uses `$(shell ...)`, so it needs `gmake`, and it sets
-  `CC = c99`, which OpenBSD 8.0 no longer ships: `build.sh` overrides both.
-  freetype/fontconfig are in xenocara (no packages, no .pc files), so the
-  build passes their include/link flags explicitly. The alpha patch fails
-  against 0.9.2; use picom for opacity.
-- The `chromium` package installs its launcher as `chrome`, not `chromium`.
-- Chromium policy lives in `/etc/chromium/policies/managed/*.json`. Files that
-  set the same key are merged, so the browser stage warns about any extra
-  policy file it finds next to `amber.json`.
-- Rehearsed on 2026-11-03: the force-install policy fetched uBlock Origin Lite
-  2026.1026.1812 into a fresh profile in under a minute on Chromium 156.
-- `tmux`, `pkg-config` and `doas` are base-system; do not list them as packages.
-- A 40 GiB auto-layout VM gives `/usr/local` only ~4.7 GiB, which the gaming
-  set does not fit in. That is why gaming has its own stage with a free-space
-  check; the T480s has plenty.
-- spectrwm does **not** expand `$HOME` in `bar_action` or in `program[]`
-  paths; `install.sh` bakes the real home directory into `~/.spectrwm.conf`.
-- `quirk[...]` keys end at the first `]`, so a bracket expression such as
-  `[Zz]athura` is a parse error and spectrwm paints the exception into the
-  bar. Use `.*athura.*` instead.
-- xenodm's stock `Xsetup_0` starts `xconsole`, which lands in the main tile
-  on a tiling desktop. The session cannot kill it (xenodm owns it as
-  root/_x11), so this repo ships `etc/X11/xenodm/Xsetup_0` without it.
-- Rehearsed on 2026-11-03: st 0.9.2 builds and runs, spectrwm + picom + dunst
-  + clipmenud + xidle start, the amber bar renders and the wallpaper applies.
-  Gaming was skipped by its free-space guard in the 40 GiB VM.
-- In `.spectrwm.conf`, `#` starts a comment, so colours must use
-  `rgb:rr/gg/bb` (not `#rrggbb`). `bar_type` does not exist in spectrwm 3.7.0.
-- There is no `qemu-ga` in the VM: OpenBSD has no virtio-serial/virtio-console
-  driver, so the agent can never connect. Shutdown uses ACPI and works.
-- `AllowUsers` is a whitelist. The VM drop-in must list `root peter`, or
-  `peter` loses SSH after the next reload.
-- Overlays are archived from `peter`-owned files: `provision.sh` and `vm apply`
-  chown `/etc` entries back to `root:wheel` and `chmod 600 /etc/doas.conf`.
-- Eject the ISO before rebooting; otherwise the installer boots again.
-
-## What is deliberately not tracked
-
-`/etc/fstab` (DUID-specific), `/etc/mygate`, `/etc/ssh/ssh_host_*`,
-`/etc/master.passwd`, `/etc/passwd`, `/etc/group`, `/etc/host.random`,
-`/var/db/*`. Each install generates those itself.
+This repository vendors third-party assets and patches in places (e.g. fonts, `st` patches/config inputs). Review files under `share/` and other directories for their respective licenses/attributions before redistribution or reuse.

@@ -1,0 +1,94 @@
+#!/bin/sh
+# kbdlight [up|down|cycle|toggle]
+#
+# Adjust keyboard backlight (ThinkPad/OpenBSD wscons) and show an on-screen
+# notification. Common controls: keyboard.backlight / keyboard.ledstate
+# via wsconsctl. Requires: permit nopass :wheel cmd /sbin/wsconsctl
+
+set -u
+
+action=${1:-cycle}
+
+notify() {
+	msg=$1
+	val=$2
+	if command -v notify-send >/dev/null 2>&1; then
+		notify-send -a keyboard -h string:x-dunst-stack-tag:kbdlight \
+			-h "int:value:$val" "keyboard backlight" "$msg" >/dev/null 2>&1 || true
+	fi
+}
+
+ws_get() {
+	var=$1
+	val=$(doas -n /sbin/wsconsctl -n "$var" 2>/dev/null | sed -n 1p)
+	[ -n "$val" ] || val=$(/sbin/wsconsctl -n "$var" 2>/dev/null | sed -n 1p)
+	printf '%s' "$val"
+}
+
+# Try to read a numeric keyboard backlight level from common wscons controls.
+get_level() {
+	for v in keyboard.backlight keyboard1.backlight keyboard.brightness; do
+		val=$(ws_get "$v")
+		case $val in ''|*[!0-9.-]*) continue ;; esac
+		# normalize float to int if needed
+		val=$(awk -v n="$val" 'BEGIN{printf "%d", n+0}')
+		printf '%s\n' "$val"
+		return 0
+	done
+	return 1
+}
+
+set_level() {
+	new=$1
+	for v in keyboard.backlight keyboard1.backlight keyboard.brightness; do
+		cur=$(ws_get "$v")
+		case $cur in ''|*[!0-9.-]*) continue ;; esac
+		if doas -n /sbin/wsconsctl "$v=$new" >/dev/null 2>&1 ||
+		   /sbin/wsconsctl "$v=$new" >/dev/null 2>&1; then
+			printf '%s\n' "$v"
+			return 0
+		fi
+	done
+	return 1
+}
+
+level=$(get_level 2>/dev/null || echo 0)
+case $level in ''|*[!0-9]*) level=0 ;; esac
+
+# Assume 0..2 (off/dim/bright) on ThinkPads; adjust if control reports higher.
+max=2
+
+case $action in
+up)
+	level=$((level + 1))
+	[ "$level" -gt "$max" ] && level=$max
+	;;
+down)
+	level=$((level - 1))
+	[ "$level" -lt 0 ] && level=0
+	;;
+cycle|toggle)
+	level=$(( (level + 1) % (max + 1) ))
+	;;
+set)
+	level=${2:-0}
+	case $level in ''|*[!0-9]*) level=0 ;; esac
+	[ "$level" -gt "$max" ] && level=$max
+	[ "$level" -lt 0 ] && level=0
+	;;
+*)
+	echo "usage: ${0##*/} [up|down|cycle|toggle|set N]" >&2
+	exit 1
+	;;
+esac
+
+set_level "$level" >/dev/null 2>&1 || true
+
+case $level in
+0) msg="off"; pct=0 ;;
+1) msg="dim"; pct=50 ;;
+2) msg="bright"; pct=100 ;;
+*) msg="level $level"; pct=100 ;;
+esac
+notify "$msg" "$pct"
+exit 0
