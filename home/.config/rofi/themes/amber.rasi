@@ -108,7 +108,7 @@ element-icon {
 element-text {
     background-color: inherit;
     text-color:       inherit;
-    highlight:        bold @amber;
+    highlight:        bold #0f0e0c;
     vertical-align:   0.5;
 }
 
@@ -116,13 +116,13 @@ element-text selected.normal,
 element-text selected.active {
     background-color: @amber;
     text-color:       @bg0;
-    highlight:        bold underline @bg0;
+    highlight:        bold #0f0e0c;
 }
 
 element-text selected.urgent {
     background-color: @red;
     text-color:       @fg;
-    highlight:        bold underline #ffffff;
+    highlight:        bold #ffffff;
 }
 
 scrollbar {

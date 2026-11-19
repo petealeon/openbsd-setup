@@ -19,13 +19,6 @@ DIM='+@fg=2;'
 RED='+@fg=3;'
 SEP="${DIM}· ${FG}"
 
-STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/openbsd-setup"
-VOL_MUTE_MARK="$STATE_DIR/volume-muted"
-VOL_LEVEL_STATE="$STATE_DIR/volume-level"
-
-# Allow volume/other helpers to wake the bar for faster UI feedback.
-trap ':' USR1
-
 # join_segments a b c ... — join non-empty segments with the separator
 join_segments() {
 	out=
@@ -60,16 +53,6 @@ volume_seg() {
 		[ -n "$mute" ] || mute=$(sndioctl -n output.mute 2>/dev/null | sed -n 1p)
 	fi
 	[ -n "$level" ] || return 0
-	# honor intended mute marker (some drivers clear/report mute inconsistently)
-	if [ -f "$VOL_MUTE_MARK" ]; then
-		mute=1
-		case $level in
-		0|0.0|0.00|0.000)
-			saved=$(sed -n '1p' "$VOL_LEVEL_STATE" 2>/dev/null)
-			[ -n "$saved" ] && level=$saved
-			;;
-		esac
-	fi
 	pct=$(awk -v l="$level" 'BEGIN { printf "%d", l * 100 + 0.5 }')
 	case $mute in 1)
 		printf '%svol muted%s' "$RED" "$FG"

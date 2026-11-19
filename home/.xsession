@@ -52,11 +52,11 @@ xset dpms 600 900 1200 2>/dev/null || true
 xset b off 2>/dev/null || true
 
 # ── input: touchscreen and trackpad ─────────────────────────────────────────
-# Persistent touchpad/mouse tunables belong in /etc/wsconsctl.conf (boot).
-# On OpenBSD, X often uses the wscons "ws" driver (e.g. /dev/wsmouse* on
-# T480s pms/Elantech), which does not expose libinput/Synaptics properties;
-# so best-effort wsconsctl tweaks are attempted here as well (harmless if the
-# keys/devices are unsupported or not writable by the session).
+# The wscons tunables themselves live in /etc/wsconsctl.conf (applied at boot).
+# Here we configure X/libinput devices for a "smooth, natural" feel similar to
+# modern desktops: natural scrolling, tap-to-click, tap drag, and sane accel.
+# xinput works with both the xf86-input-libinput and synaptics-era device
+# properties; commands fail harmlessly if a property is unsupported.
 if command -v xinput >/dev/null 2>&1; then
 	out=$(xrandr --query 2>/dev/null |
 		sed -n 's/^\([^ ]*\) connected primary.*/\1/p' | sed -n 1p)
@@ -70,12 +70,11 @@ if command -v xinput >/dev/null 2>&1; then
 			done
 	fi
 
-	# Apply pointer tuning where the X driver exposes libinput/Synaptics props.
+	# Apply pointer tuning to trackpads and the TrackPoint.
 	xinput list --name-only 2>/dev/null | while IFS= read -r dev; do
-		lc=$(printf '%s' "$dev" | tr 'A-Z' 'a-z')
-		case $lc in
-		*touchpad*|*trackpad*|*synaptics*|*trackpoint*|*pointing*|*wsmouse*)
-			# libinput (no effect on plain wscons/ws devices)
+		case $(printf '%s' "$dev" | tr 'A-Z' 'a-z') in
+		*touchpad*|*trackpad*|*synaptics*|*trackpoint*|*pointing*)
+			# libinput: natural scrolling, tap-to-click, tap-drag, accel
 			xinput set-prop "$dev" "libinput Natural Scrolling Enabled" 1 \
 				>/dev/null 2>&1 || true
 			xinput set-prop "$dev" "libinput Tapping Enabled" 1 \
@@ -97,14 +96,16 @@ if command -v xinput >/dev/null 2>&1; then
 		esac
 	done
 fi
-
-# wscons tunables (best-effort at runtime; /etc/wsconsctl.conf is authoritative
-# at boot). Keys vary by device/driver; failures are ignored.
+# wscons fallback (harmless if unsupported): try natural scrolling on the
+# touchpad device if exposed via wsconsctl.
 if command -v wsconsctl >/dev/null 2>&1; then
-	wsconsctl mouse.reverse_scrolling=1 >/dev/null 2>&1 || true
-	wsconsctl mouse.tp.reverse_scrolling=1 >/dev/null 2>&1 || true
-	wsconsctl mouse.tp.tapping=1 >/dev/null 2>&1 || true
-	wsconsctl mouse.tp.scaling=0.5 >/dev/null 2>&1 || true
+	for p in mouse.reverse_scrolling mouse.tp.reverse_scrolling \
+		mouse.tp.scaling mouse.tp.tapping; do
+		case $p in
+		*reverse_scrolling) wsconsctl "$p=1" >/dev/null 2>&1 || true ;;
+		*tapping)           wsconsctl "$p=1" >/dev/null 2>&1 || true ;;
+		esac
+	done
 fi
 
 # ── wallpaper ───────────────────────────────────────────────────────────────
