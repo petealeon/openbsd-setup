@@ -18,13 +18,13 @@ bar_font_color[1]       = rgb:ff/b0/00,rgb:e6/de/d0,rgb:8a/81/75,rgb:d9/0d/10
 bar_font_color_unfocus[1] = rgb:8a/81/75,rgb:8a/81/75,rgb:5c/55/4a,rgb:d9/0d/10
 bar_color_selected      = rgb:ff/b0/00
 bar_font_color_selected = rgb:0f/0e/0c
-bar_font                = BlexMono Nerd Font:pixelsize=15:antialias=true
-# workspace indicators: current [n], occupied n, empty dim, urgent !n
+bar_font                = BlexMono Nerd Font:pixelsize=16:antialias=true
+# workspace indicators: current [n] amber, occupied n, empty dim n, urgent !n red
 workspace_mark_current        = +@fg=0;[
-workspace_mark_current_suffix = ]+@fg=2; 
+workspace_mark_current_suffix = ]+@fg=1; 
 workspace_mark_active         = +@fg=1;
-workspace_mark_active_suffix  = +@fg=2; 
+workspace_mark_active_suffix  = +@fg=1; 
 workspace_mark_empty          = +@fg=2;
-workspace_mark_empty_suffix   = +@fg=2; 
+workspace_mark_empty_suffix   = +@fg=1; 
 workspace_mark_urgent         = +@fg=3;!
-workspace_mark_urgent_suffix  = +@fg=2; 
+workspace_mark_urgent_suffix  = +@fg=1; 

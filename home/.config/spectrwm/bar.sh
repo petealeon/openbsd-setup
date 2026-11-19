@@ -144,8 +144,12 @@ audio_seg() {
 	printf '%s%s%s' "$DIM" "$short" "$FG"
 }
 
-# Battery, network, temperature and the current track move slowly: refresh
-# them every 20s and keep clock/volume/audio on every tick.
+# Fast/slow refresh: update volume/audio/clock often for responsiveness,
+# but poll slower/expensive sources (network, battery, temp, music) less.
+# TICK=0.2 gives ~5 updates/sec (responsive without excessive wakeups).
+TICK=0.2
+SLOW_EVERY=25	# ~5s at TICK=0.2
+
 net=''
 bat=''
 temp=''
@@ -165,6 +169,6 @@ while :; do
 		"${AMBER}$(date '+%a %d %b  %H:%M')${FG}")
 	printf '%s\n' "$line"
 
-	tick=$(( (tick + 1) % 10 ))
-	sleep 2
+	tick=$(( (tick + 1) % SLOW_EVERY ))
+	sleep "$TICK"
 done

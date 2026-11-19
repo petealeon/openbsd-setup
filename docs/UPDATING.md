@@ -49,6 +49,10 @@ doas ./install.sh --metal --user <your-user> --only=packages,desktop,system,brow
 
 If you track this repo with git, `~/bin/openbsd-setup-update` can fetch upstream changes and run `update.sh` for commits not yet applied (recording the last successful apply under `${XDG_STATE_HOME:-$HOME/.local/state}/openbsd-setup/`). See the root `README.md` for usage and safety behavior.
 
+## Customization notes
+
+- **Bar font size:** edit `bar_font` in `home/.config/spectrwm/themes/amber/spectrwm.colors` (source of truth) and in the managed theme block of `home/.spectrwm.conf`, e.g. `BlexMono Nerd Font:pixelsize=16:antialias=true`. On an installed system, edit `~/.config/spectrwm/themes/amber/spectrwm.colors` and run `theme-apply amber` (or reload spectrwm with `Super+Ctrl+R` / relogin) so the change is applied; `theme-apply` rewrites the managed block in `~/.spectrwm.conf` from the theme file. Terminal (`st`) font size is separate and compile-time in `share/st/config.h`.
+
 ## Troubleshooting and diagnostics
 
 - Check script output and rerun with `--dry-run` to preview actions.

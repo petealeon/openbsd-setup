@@ -15,11 +15,12 @@
     notification_limit = 6
 
     progress_bar = true
-    progress_bar_height = 6
-    progress_bar_frame_width = 1
+    progress_bar_height = 4
+    progress_bar_frame_width = 0
     progress_bar_min_width = 240
     progress_bar_max_width = 340
     progress_bar_corner_radius = 0
+    highlight = "#ffb000"
 
     frame_width = 1
     frame_color = "#2a241b"

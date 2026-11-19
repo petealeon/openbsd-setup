@@ -1,9 +1,10 @@
 #!/bin/sh
-# volume [up|down|mute|unmute|toggle|set N] [step]
+# volume [up|down|mute|unmute|toggle|set N|status] [step]
 #
 # Adjust sndio output volume/mute and show a dunst progress overlay.
 # Prefers the saved audio device (~/.config/audio-device), then $AUDIODEVICE,
-# then the default sndio device.
+# then the default sndio device. Persists the last audible level so unmute
+# can restore it if the driver reports/sets level to 0 while muted.
 
 set -eu
 
@@ -11,6 +12,8 @@ cmd=${1:-toggle}
 step=${2:-5}
 conf_dir="$HOME/.config"
 dev_file="$conf_dir/audio-device"
+state_dir="${XDG_STATE_HOME:-$HOME/.local/state}/openbsd-setup"
+level_state="$state_dir/volume-level"
 
 notify() {
 	pct=$1 muted=$2
@@ -20,7 +23,7 @@ notify() {
 	[ "$pct" -gt 100 ] && pct=100
 	if [ "$muted" = 1 ]; then
 		notify-send -a volume -h string:x-dunst-stack-tag:volume \
-			-h "int:value:0" "volume" "muted ($pct%)" >/dev/null 2>&1 || true
+			-h "int:value:$pct" "volume" "muted ($pct%)" >/dev/null 2>&1 || true
 	else
 		notify-send -a volume -h string:x-dunst-stack-tag:volume \
 			-h "int:value:$pct" "volume" "$pct%" >/dev/null 2>&1 || true
@@ -103,8 +106,19 @@ to_pct() {
 	awk -v l="$1" 'BEGIN{v=l*100+0.5; if(v<0)v=0; if(v>100)v=100; printf "%d", v}'
 }
 
-clamp_level() {
-	awk -v v="$1" 'BEGIN{if(v<0)v=0; if(v>1)v=1; printf "%.3f", v}'
+save_level() {
+	l=$1
+	is_num "$l" || return 0
+	awk -v l="$l" 'BEGIN{exit !(l > 0.001)}' || return 0
+	mkdir -p "$state_dir" 2>/dev/null || return 0
+	printf '%s\n' "$l" >"$level_state" 2>/dev/null || true
+}
+
+saved_level() {
+	l=$(sed -n '1p' "$level_state" 2>/dev/null || true)
+	is_num "$l" || return 1
+	awk -v l="$l" 'BEGIN{exit !(l > 0.001)}' || return 1
+	printf '%s' "$l"
 }
 
 apply_pair() {
@@ -113,6 +127,30 @@ apply_pair() {
 	if snd_set output.level "$l" "$dev"; then ok=1; fi
 	if snd_set output.mute "$m" "$dev"; then ok=1; fi
 	[ "$ok" -eq 1 ]
+}
+
+set_mute_state() {
+	want=$1 dev=$2
+	for d in "$dev" $(build_candidates); do
+		[ "${d+x}" = x ] || continue
+		if snd_set output.mute "$want" "$d"; then printf '%s' "$d"; return 0; fi
+	done
+	return 1
+}
+
+restore_if_silent() {
+	dev=$1
+	rlev=$(snd_get output.level "$dev")
+	is_num "$rlev" || rlev=$level
+	awk -v l="$rlev" 'BEGIN{exit !(l <= 0.001)}' || { level=$rlev; return 0; }
+	prev=$(saved_level 2>/dev/null || true)
+	[ -n "$prev" ] || { level=$rlev; return 0; }
+	if snd_set output.level "$prev" "$dev"; then
+		rlev=$(snd_get output.level "$dev")
+		is_num "$rlev" && level=$rlev || level=$prev
+	else
+		level=$prev
+	fi
 }
 
 case $cmd in
@@ -137,36 +175,38 @@ up|down)
 	rlev=$(snd_get output.level "$target"); rmute=$(snd_get output.mute "$target")
 	is_num "$rlev" && level=$rlev || level=$new
 	case $rmute in 1) mute=1 ;; 0) mute=0 ;; *) mute=$new_mute ;; esac
+	save_level "$level"
 	;;
 mute)
-	new_mute=1
-	for d in "$target" $(build_candidates); do
-		[ "${d+x}" = x ] || continue
-		if snd_set output.mute "$new_mute" "$d"; then target=$d; break; fi
-	done
+	save_level "$level"
+	if d=$(set_mute_state 1 "$target"); then target=$d; fi
 	rmute=$(snd_get output.mute "$target")
 	case $rmute in 1) mute=1 ;; 0) mute=0 ;; *) mute=1 ;; esac
 	rlev=$(snd_get output.level "$target"); is_num "$rlev" && level=$rlev || true
 	;;
 unmute)
-	new_mute=0
-	for d in "$target" $(build_candidates); do
-		[ "${d+x}" = x ] || continue
-		if snd_set output.mute "$new_mute" "$d"; then target=$d; break; fi
-	done
+	if d=$(set_mute_state 0 "$target"); then target=$d; fi
 	rmute=$(snd_get output.mute "$target")
 	case $rmute in 0) mute=0 ;; 1) mute=1 ;; *) mute=0 ;; esac
-	rlev=$(snd_get output.level "$target"); is_num "$rlev" && level=$rlev || true
+	restore_if_silent "$target"
+	rmute=$(snd_get output.mute "$target"); case $rmute in 1) mute=1 ;; *) mute=0 ;; esac
+	save_level "$level"
 	;;
 toggle)
-	if [ "$mute" -eq 1 ]; then new_mute=0; else new_mute=1; fi
-	for d in "$target" $(build_candidates); do
-		[ "${d+x}" = x ] || continue
-		if snd_set output.mute "$new_mute" "$d"; then target=$d; break; fi
-	done
-	rmute=$(snd_get output.mute "$target")
-	case $rmute in 1) mute=1 ;; 0) mute=0 ;; *) mute=$new_mute ;; esac
-	rlev=$(snd_get output.level "$target"); is_num "$rlev" && level=$rlev || true
+	if [ "$mute" -eq 1 ]; then
+		if d=$(set_mute_state 0 "$target"); then target=$d; fi
+		rmute=$(snd_get output.mute "$target")
+		case $rmute in 0) mute=0 ;; 1) mute=1 ;; *) mute=0 ;; esac
+		restore_if_silent "$target"
+		rmute=$(snd_get output.mute "$target"); case $rmute in 1) mute=1 ;; *) mute=0 ;; esac
+		save_level "$level"
+	else
+		save_level "$level"
+		if d=$(set_mute_state 1 "$target"); then target=$d; fi
+		rmute=$(snd_get output.mute "$target")
+		case $rmute in 1) mute=1 ;; 0) mute=0 ;; *) mute=1 ;; esac
+		rlev=$(snd_get output.level "$target"); is_num "$rlev" && level=$rlev || true
+	fi
 	;;
 set)
 	val=${2:-}
@@ -182,12 +222,13 @@ set)
 	rlev=$(snd_get output.level "$target"); rmute=$(snd_get output.mute "$target")
 	is_num "$rlev" && level=$rlev || level=$new
 	case $rmute in 1) mute=1 ;; 0) mute=0 ;; *) mute=0 ;; esac
+	save_level "$level"
 	;;
 status)
 	: # just report
 	;;
 *)
-	echo "usage: ${0##*/} [up|down|mute|unmute|toggle|set N] [step]" >&2
+	echo "usage: ${0##*/} [up|down|mute|unmute|toggle|set N|status] [step]" >&2
 	exit 1
 	;;
 esac
