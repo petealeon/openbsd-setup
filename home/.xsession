@@ -3,7 +3,7 @@
 #  ~/.xsession — X session started by xenodm (or by `startx` via ~/.xinitrc)
 #
 #  Order matters: the D-Bus session first (dunst and libnotify need it), then
-#  theme resources, then the helpers spectrwm expects to already be running.
+#  theme resources, then the helpers the window manager expects to be running.
 # ---------------------------------------------------------------------------
 
 # Re-exec under a private session bus; a no-op when dbus is absent.
@@ -113,6 +113,8 @@ theme=$(cat "$HOME/.cache/theme" 2>/dev/null)
 [ -n "$theme" ] || theme=amber
 wall="$HOME/Pictures/wallpapers/$theme.png"
 [ -f "$wall" ] || wall="$HOME/.config/spectrwm/themes/$theme/wallpaper.png"
+# sensible fallback for the cwm trial (and first runs)
+[ -f "$wall" ] || wall="$HOME/Pictures/amber-wall.png"
 if [ -f "$wall" ] && command -v feh >/dev/null 2>&1; then
 	feh --no-fehbg --bg-fill "$wall" >/dev/null 2>&1
 else
@@ -157,4 +159,4 @@ fi
 # no longer starts one. That has to be fixed there, because xenodm owns the
 # process as root/_x11 and this session runs as an unprivileged user.
 
-exec spectrwm
+exec cwm

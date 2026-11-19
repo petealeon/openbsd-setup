@@ -1,0 +1,107 @@
+# ~/.cwmrc — cwm (Calm Window Manager) quick-start config for OpenBSD 8.0
+#
+# A small, readable first pass: amber-ish colors, larger text, and a handful of
+# familiar bindings layered on top of cwm's defaults. Reload after edits with
+# Ctrl+Alt+r (restart), or from a terminal: pkill -HUP cwm
+#
+# Groups are cwm's workspaces (1-9). "group 0" means sticky (visible on all).
+# See cwmrc(5) and cwm(1).
+
+# ── look & feel (sized for a ~157dpi 14" panel at Xft.dpi 120) ────────────────
+# Menus and window labels: kept comfortably large for HiDPI readability.
+fontname "BlexMono Nerd Font:size=14:bold,sans-serif:size=14:bold"
+
+borderwidth 3
+snapdist 8
+moveamount 10
+gap 28 8 8 8
+sticky yes
+
+# amber palette (active border stands out; menus readable, not tiny)
+color activeborder   "#ffb000"
+color inactiveborder "#2a241b"
+color urgencyborder  "#d90d10"
+color groupborder    "#ffb000"
+color ungroupborder  "#8a8175"
+color menubg         "#17140f"
+color menufg         "#e6ded0"
+color font           "#e6ded0"
+color selfont        "#0f0e0c"
+
+# ── programs (special: "term" and "lock" are used by the built-in functions) ─
+command term "st"
+command lock "$HOME/bin/lock"
+
+# application menu (Ctrl+Alt+m / menu-cmd). Keep a few handy entries; use the
+# rofi launcher (Super+space) for the full command centre.
+command terminal     "st"
+command files        "st -e lf"
+command browser      "chrome --enable-unveil"
+command launcher     "$HOME/bin/launcher"
+command wifi         "st -e $HOME/bin/wifi"
+command audio        "$HOME/bin/audio-output"
+command screenshot   "$HOME/bin/screenshot region"
+command lock-screen  "$HOME/bin/lock"
+
+# ── key bindings (Super = Mod4 = "4") ─────────────────────────────────────────
+# session / essentials
+bind-key 4-Return      terminal
+bind-key 4S-Return     "$HOME/bin/launcher"
+bind-key 4-space       "$HOME/bin/launcher"
+bind-key 4-d           "rofi -show drun -show-icons"
+bind-key 4-w           "rofi -show window -show-icons"
+bind-key 4-l           lock
+bind-key 4S-slash      "$HOME/bin/keybinds"
+
+# windows
+bind-key 4-q           window-close
+bind-key 4-f           window-fullscreen
+bind-key 4-m           window-maximize
+bind-key 4S-h          window-htile
+bind-key 4S-v          window-vtile
+bind-key 4-comma       window-hide
+bind-key 4-period      menu-window-hidden
+bind-key 4-Tab         window-cycle
+bind-key 4S-Tab        window-rcycle
+
+# groups (workspaces) 1-9
+bind-key 4-1           group-only-1
+bind-key 4-2           group-only-2
+bind-key 4-3           group-only-3
+bind-key 4-4           group-only-4
+bind-key 4-5           group-only-5
+bind-key 4-6           group-only-6
+bind-key 4-7           group-only-7
+bind-key 4-8           group-only-8
+bind-key 4-9           group-only-9
+bind-key 4S-1          window-movetogroup-1
+bind-key 4S-2          window-movetogroup-2
+bind-key 4S-3          window-movetogroup-3
+bind-key 4S-4          window-movetogroup-4
+bind-key 4S-5          window-movetogroup-5
+bind-key 4S-6          window-movetogroup-6
+bind-key 4S-7          window-movetogroup-7
+bind-key 4S-8          window-movetogroup-8
+bind-key 4S-9          window-movetogroup-9
+bind-key 4-0           group-toggle-all
+bind-key 4-g           menu-group
+
+# hardware / media keys (re-use existing helpers)
+bind-key XF86AudioRaiseVolume  "$HOME/bin/volume up"
+bind-key XF86AudioLowerVolume  "$HOME/bin/volume down"
+bind-key XF86AudioMute         "$HOME/bin/volume toggle"
+bind-key XF86AudioMicMute      "$HOME/bin/volume mic-mute"
+bind-key XF86MonBrightnessUp   "$HOME/bin/brightness up"
+bind-key XF86MonBrightnessDown "$HOME/bin/brightness down"
+bind-key Print                 "$HOME/bin/screenshot full"
+bind-key S-Print               "$HOME/bin/screenshot window"
+bind-key 4-Print               "$HOME/bin/screenshot region"
+
+# cwm controls (keep Ctrl+Alt+r = restart, Ctrl+Alt+q = quit from defaults too)
+bind-key 4S-r          restart
+bind-key 4S-q          quit
+
+# ── mouse bindings (Super + drag, on top of defaults) ─────────────────────────
+bind-mouse 4-1         window-move
+bind-mouse 4-3         window-resize
+bind-mouse 4S-1        menu-window

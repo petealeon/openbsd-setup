@@ -1,7 +1,18 @@
 #!/bin/sh
-# keybinds — show the active spectrwm bindings in rofi (Super+Shift+/)
+# keybinds — show key bindings in rofi (Super+Shift+/)
 
 set -u
+
+if pgrep -qx cwm 2>/dev/null || [ "${1:-}" = cwm ] || [ -f "$HOME/.cwmrc" ] && ! pgrep -qx spectrwm 2>/dev/null; then
+	conf=${CWMRC:-$HOME/.cwmrc}
+	[ -f "$conf" ] || exit 1
+	{
+		sed -n 's/^[[:space:]]*bind-key[[:space:]]\{1,\}\([^[:space:]]\{1,\}\)[[:space:]]\{1,\}\(.*\)$/\1|\2/p' "$conf" |
+			awk -F'|' '$2 != "" { gsub(/^"/,"",$2); gsub(/"$/,"",$2); printf "%-28s  %s\n", $1, $2 }'
+	} | rofi -dmenu -i -p 'keybindings' -no-custom -mesg \
+		'cwm: 4=Super, S=Shift, C=Ctrl, M=Meta. Custom binds from ~/.cwmrc (defaults also apply).'
+	exit 0
+fi
 
 conf=${SPECTRWM_CONF:-$HOME/.spectrwm.conf}
 [ -f "$conf" ] || exit 1
