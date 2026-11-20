@@ -28,10 +28,13 @@ stage_desktop() {
 		"$GUEST_HOME/Games" "$GUEST_HOME/.local" "$GUEST_HOME/.cache" \
 		"$GUEST_HOME/.config/retroarch" 2>/dev/null || true
 
-	# spectrwm does not expand $HOME in bar_action (or in the program[] paths
-	# it execs), so the repo keeps $HOME for readability and the installer
-	# bakes the real path in here. Re-running is a no-op once it is absolute.
-	run_shell "sed 's|[$]HOME|$GUEST_HOME|g' '$GUEST_HOME/.spectrwm.conf' > '$GUEST_HOME/.spectrwm.conf.new' && mv '$GUEST_HOME/.spectrwm.conf.new' '$GUEST_HOME/.spectrwm.conf'"
+	# Some configs keep $HOME for readability; bake the real path so they work
+	# regardless of variable expansion behavior. Re-running is a no-op once absolute.
+	for _f in "$GUEST_HOME/.spectrwm.conf" "$GUEST_HOME/.cwmrc"; do
+		if [ -f "$_f" ]; then
+			run_shell "sed 's|[\$]HOME|$GUEST_HOME|g' '$_f' > '$_f.new' && mv '$_f.new' '$_f'"
+		fi
+	done
 
 	# ── theme ────────────────────────────────────────────────────────────
 	run_shell "printf 'amber\n' > '$GUEST_HOME/.cache/theme'"

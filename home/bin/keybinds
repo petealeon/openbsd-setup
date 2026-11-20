@@ -3,14 +3,38 @@
 
 set -u
 
-if pgrep -qx cwm 2>/dev/null || [ "${1:-}" = cwm ] || [ -f "$HOME/.cwmrc" ] && ! pgrep -qx spectrwm 2>/dev/null; then
+show_cwm=0
+case ${1:-} in
+cwm) show_cwm=1 ;;
+esac
+if [ "$show_cwm" -eq 0 ]; then
+	if pgrep -qx cwm 2>/dev/null; then
+		show_cwm=1
+	elif pgrep -qx spectrwm 2>/dev/null; then
+		show_cwm=0
+	elif [ -f "$HOME/.cwmrc" ]; then
+		show_cwm=1
+	fi
+fi
+
+if [ "$show_cwm" -eq 1 ]; then
 	conf=${CWMRC:-$HOME/.cwmrc}
 	[ -f "$conf" ] || exit 1
 	{
+		printf '%-28s  %s\n' 'C-M-r' 'restart cwm (reload config)'
+		printf '%-28s  %s\n' 'C-M-q' 'quit cwm (log out)'
+		printf '%-28s  %s\n' 'C-M-Return' 'terminal (xterm, default)'
+		printf '%-28s  %s\n' 'C-M-Esc' 'lock screen (default)'
+		printf '%-28s  %s\n' 'M-Return' 'hide current window'
+		printf '%-28s  %s\n' 'M-Down' 'lower window'
+		printf '%-28s  %s\n' 'M-Up' 'raise window'
+		printf '%-28s  %s\n' 'M-slash' 'search windows'
+		printf '%-28s  %s\n' 'M-question' 'search apps (exec)'
+		printf '%-28s  %s\n' '4-button1/3' 'move / resize window (drag)'
 		sed -n 's/^[[:space:]]*bind-key[[:space:]]\{1,\}\([^[:space:]]\{1,\}\)[[:space:]]\{1,\}\(.*\)$/\1|\2/p' "$conf" |
 			awk -F'|' '$2 != "" { gsub(/^"/,"",$2); gsub(/"$/,"",$2); printf "%-28s  %s\n", $1, $2 }'
 	} | rofi -dmenu -i -p 'keybindings' -no-custom -mesg \
-		'cwm: 4=Super, S=Shift, C=Ctrl, M=Meta. Custom binds from ~/.cwmrc (defaults also apply).'
+		'cwm: 4=Super S=Shift C=Ctrl M=Alt. Defaults + ~/.cwmrc (see cwmrc(5)).'
 	exit 0
 fi
 

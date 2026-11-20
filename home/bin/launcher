@@ -23,10 +23,18 @@ wm=$(wm_name)
 
 reload_wm() {
 	case $wm in
-	cwm)      pkill -HUP cwm 2>/dev/null || true ;;
-	spectrwm) command -v xdotool >/dev/null 2>&1 && \
+	cwm)
+		# cwm reloads config via its "restart" action (default: Ctrl+Alt+r)
+		if command -v xdotool >/dev/null 2>&1; then
+			xdotool key --clearmodifiers ctrl+alt+r 2>/dev/null || \
+				xdotool key --clearmodifiers super+shift+r 2>/dev/null || true
+		fi
+		;;
+	spectrwm)
+		command -v xdotool >/dev/null 2>&1 && \
 			xdotool key --clearmodifiers super+ctrl+r 2>/dev/null || \
-			pkill -HUP spectrwm 2>/dev/null || true ;;
+			pkill -HUP spectrwm 2>/dev/null || true
+		;;
 	*)        : ;;
 	esac
 }

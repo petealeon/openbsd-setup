@@ -4,7 +4,7 @@
 >
 > This repository is tailored to specific hardware and evolves rapidly. It modifies `/etc`, user configuration, services, and packages, builds software from source, and can leave a system in a broken or inconvenient state. It is provided **as-is**, with no warranty or support implied. Use it at your own risk.
 
-`openbsd-setup` is an idempotent, staged setup for **OpenBSD 8.0 (amd64)** aimed at a lightweight X11 desktop (spectrwm, `st`, rofi, dunst, picom, etc.) with an "amber" theme. It was developed and tested primarily on a ThinkPad-class laptop, but many parts are hardware-specific and assumptions may not match your machine.
+`openbsd-setup` is an idempotent, staged setup for **OpenBSD 8.0 (amd64)** aimed at a lightweight X11 desktop (**cwm** in base, `st`, rofi, dunst, picom, etc.) with an "amber" theme. It was developed and tested primarily on a ThinkPad-class laptop (T480s), but many parts are hardware-specific and assumptions may not match your machine. Legacy spectrwm configs remain in the repo as a fallback.
 
 The repo is the source of truth: install/update behavior lives in scripts and overlays, not in a one-off manual system state.
 
@@ -23,7 +23,7 @@ The repo is the source of truth: install/update behavior lives in scripts and ov
 - **WIP / experimental:** expect rough edges, changing behavior, and hardware-dependent issues.
 - **Hardware-specific behavior exists:** power/suspend, backlight/keyboard backlight keys, audio devices, wireless NICs, trackpad/touch behavior, and firmware needs vary by machine. Some workarounds (e.g. suspend/hibernate policy and diagnostics) reflect tested hardware and may not be appropriate elsewhere.
 - **Not a general OpenBSD installer replacement:** it does not partition disks, create filesystems, or install the bootloader. You must perform a normal OpenBSD installation first.
-- **Desktop choices are opinionated:** X11/spectrwm/xenodm, specific keybindings/helpers, and theme defaults.
+- **Desktop choices are opinionated:** X11/cwm/xenodm by default, specific keybindings/helpers, and theme defaults.
 - **Validate on your system:** review diffs and test changes; keep a recovery path (console login, backups/snapshots where applicable).
 
 ## Repository layout

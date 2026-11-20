@@ -8,8 +8,8 @@
     width = 340
     height = (0, 200)
     origin = top-right
-    # keep clear of the 30px spectrwm bar
-    offset = (14, 44)
+    # comfortable margin (no permanent bar in cwm)
+    offset = (14, 14)
     scale = 0
 
     notification_limit = 6
@@ -30,7 +30,7 @@
     separator_color = frame
     sort = yes
 
-    font = BlexMono Nerd Font 10
+    font = BlexMono Nerd Font 11
     line_height = 0
     markup = full
 
@@ -92,18 +92,22 @@
     appname = volume
     timeout = 2
     set_stack_tag = volume
+    urgency = normal
 
 [brightness]
     appname = brightness
     timeout = 2
     set_stack_tag = brightness
+    urgency = normal
 
 [keyboard]
     appname = keyboard
     timeout = 2
     set_stack_tag = kbdlight
+    urgency = low
 
 [audio]
     appname = audio
     timeout = 3
     set_stack_tag = audio
+    urgency = low

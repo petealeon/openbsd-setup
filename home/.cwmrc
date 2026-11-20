@@ -1,23 +1,23 @@
-# ~/.cwmrc — cwm (Calm Window Manager) quick-start config for OpenBSD 8.0
+# ~/.cwmrc — Calm Window Manager config (OpenBSD 8.0, T480s amber desktop)
 #
-# A small, readable first pass: amber-ish colors, larger text, and a handful of
-# familiar bindings layered on top of cwm's defaults. Reload after edits with
-# Ctrl+Alt+r (restart), or from a terminal: pkill -HUP cwm
-#
-# Groups are cwm's workspaces (1-9). "group 0" means sticky (visible on all).
-# See cwmrc(5) and cwm(1).
+# Solid, readable defaults with amber styling and practical bindings layered on
+# top of cwm's built-ins. Groups are workspaces (1-9); "0" means sticky/all.
+# Reload after edits: Ctrl+Alt+r (restart) or Super+Shift+r.  See cwmrc(5)/cwm(1).
 
 # ── look & feel (sized for a ~157dpi 14" panel at Xft.dpi 120) ────────────────
-# Menus and window labels: kept comfortably large for HiDPI readability.
+# Menus/window labels: comfortably large for HiDPI readability.
 fontname "BlexMono Nerd Font:size=14:bold,sans-serif:size=14:bold"
 
 borderwidth 3
-snapdist 8
+snapdist 12
 moveamount 10
-gap 28 8 8 8
+htile 50
+vtile 50
+# screen-edge gap in pixels (top bottom left right); modest all-around margin
+gap 12 8 8 8
 sticky yes
 
-# amber palette (active border stands out; menus readable, not tiny)
+# amber palette (active border stands out; menus readable, not dated/gray)
 color activeborder   "#ffb000"
 color inactiveborder "#2a241b"
 color urgencyborder  "#d90d10"
@@ -28,30 +28,41 @@ color menufg         "#e6ded0"
 color font           "#e6ded0"
 color selfont        "#0f0e0c"
 
-# ── programs (special: "term" and "lock" are used by the built-in functions) ─
+# quiet, non-essential borders
+ignore "xconsole"
+ignore "xclock"
+ignore "xbiff"
+
+# ── programs (special: "term" and "lock" drive built-in functions) ────────────
 command term "st"
 command lock "$HOME/bin/lock"
 
 # application menu (Ctrl+Alt+m / menu-cmd). Keep a few handy entries; use the
-# rofi launcher (Super+space) for the full command centre.
+# rofi launcher (Super+Space) for the full command centre.
 command terminal     "st"
 command files        "st -e lf"
 command browser      "chrome --enable-unveil"
+command editor       "st -e nvim"
 command launcher     "$HOME/bin/launcher"
 command wifi         "st -e $HOME/bin/wifi"
 command audio        "$HOME/bin/audio-output"
 command screenshot   "$HOME/bin/screenshot region"
 command lock-screen  "$HOME/bin/lock"
 
-# ── key bindings (Super = Mod4 = "4") ─────────────────────────────────────────
+# ── key bindings (Super = Mod4 = "4", C=Ctrl, S=Shift, M=Meta) ───────────────
 # session / essentials
 bind-key 4-Return      terminal
-bind-key 4S-Return     "$HOME/bin/launcher"
 bind-key 4-space       "$HOME/bin/launcher"
+bind-key 4S-Return     "$HOME/bin/launcher"
 bind-key 4-d           "rofi -show drun -show-icons"
-bind-key 4-w           "rofi -show window -show-icons"
+bind-key 4-e           "st -e lf"
+bind-key 4-w           menu-window
+bind-key 4S-w          menu-window-hidden
+bind-key 4-slash       menu-cmd
 bind-key 4-l           lock
 bind-key 4S-slash      "$HOME/bin/keybinds"
+bind-key 4S-r          restart
+bind-key 4S-q          quit
 
 # windows
 bind-key 4-q           window-close
@@ -63,6 +74,33 @@ bind-key 4-comma       window-hide
 bind-key 4-period      menu-window-hidden
 bind-key 4-Tab         window-cycle
 bind-key 4S-Tab        window-rcycle
+bind-key 4-i           window-cycle-ingroup
+bind-key 4S-i          window-rcycle-ingroup
+bind-key 4-BackSpace   window-hide
+bind-key 4-t           window-stick
+
+# move/resize/snap (arrow keys; Shift = big step). avoids overriding HJKL nav.
+bind-key 4-Left        window-move-left
+bind-key 4-Right       window-move-right
+bind-key 4-Up          window-move-up
+bind-key 4-Down        window-move-down
+bind-key 4S-Left       window-move-left-big
+bind-key 4S-Right      window-move-right-big
+bind-key 4S-Up         window-move-up-big
+bind-key 4S-Down       window-move-down-big
+bind-key 4C-Left       window-resize-left
+bind-key 4C-Right      window-resize-right
+bind-key 4C-Up         window-resize-up
+bind-key 4C-Down       window-resize-down
+bind-key 4CS-Left      window-resize-left-big
+bind-key 4CS-Right     window-resize-right-big
+bind-key 4CS-Up        window-resize-up-big
+bind-key 4CS-Down      window-resize-down-big
+bind-key 4M-Up         window-snap-up
+bind-key 4M-Down       window-snap-down
+bind-key 4M-Left       window-snap-left
+bind-key 4M-Right      window-snap-right
+bind-key 4M-c          window-snap-center
 
 # groups (workspaces) 1-9
 bind-key 4-1           group-only-1
@@ -83,8 +121,11 @@ bind-key 4S-6          window-movetogroup-6
 bind-key 4S-7          window-movetogroup-7
 bind-key 4S-8          window-movetogroup-8
 bind-key 4S-9          window-movetogroup-9
+bind-key 4-a           group-toggle-all
 bind-key 4-0           group-toggle-all
 bind-key 4-g           menu-group
+bind-key 4-bracketleft  group-rcycle
+bind-key 4-bracketright group-cycle
 
 # hardware / media keys (re-use existing helpers)
 bind-key XF86AudioRaiseVolume  "$HOME/bin/volume up"
@@ -93,15 +134,16 @@ bind-key XF86AudioMute         "$HOME/bin/volume toggle"
 bind-key XF86AudioMicMute      "$HOME/bin/volume mic-mute"
 bind-key XF86MonBrightnessUp   "$HOME/bin/brightness up"
 bind-key XF86MonBrightnessDown "$HOME/bin/brightness down"
+bind-key XF86AudioPlay         "mpc toggle"
+bind-key XF86AudioNext         "mpc next"
+bind-key XF86AudioPrev         "mpc prev"
 bind-key Print                 "$HOME/bin/screenshot full"
 bind-key S-Print               "$HOME/bin/screenshot window"
 bind-key 4-Print               "$HOME/bin/screenshot region"
-
-# cwm controls (keep Ctrl+Alt+r = restart, Ctrl+Alt+q = quit from defaults too)
-bind-key 4S-r          restart
-bind-key 4S-q          quit
 
 # ── mouse bindings (Super + drag, on top of defaults) ─────────────────────────
 bind-mouse 4-1         window-move
 bind-mouse 4-3         window-resize
 bind-mouse 4S-1        menu-window
+bind-mouse 4-2         window-lower
+bind-mouse 4S-3        window-hide

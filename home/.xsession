@@ -96,16 +96,17 @@ if command -v xinput >/dev/null 2>&1; then
 		esac
 	done
 fi
-# wscons fallback (harmless if unsupported): try natural scrolling on the
-# touchpad device if exposed via wsconsctl.
-if command -v wsconsctl >/dev/null 2>&1; then
-	for p in mouse.reverse_scrolling mouse.tp.reverse_scrolling \
-		mouse.tp.scaling mouse.tp.tapping; do
-		case $p in
-		*reverse_scrolling) wsconsctl "$p=1" >/dev/null 2>&1 || true ;;
-		*tapping)           wsconsctl "$p=1" >/dev/null 2>&1 || true ;;
-		esac
-	done
+# wscons tunables are applied at boot from /etc/wsconsctl.conf (see wsmouse(4)).
+# Runtime fallback (documented keys only), best-effort if boot-apply was missed.
+# doas nopass for /sbin/wsconsctl is configured for :wheel on this setup.
+if command -v doas >/dev/null 2>&1 && command -v wsconsctl >/dev/null 2>&1; then
+	doas -n /sbin/wsconsctl mouse.reverse_scrolling=1 >/dev/null 2>&1 || \
+		wsconsctl mouse.reverse_scrolling=1 >/dev/null 2>&1 || true
+	doas -n /sbin/wsconsctl mouse1.reverse_scrolling=1 >/dev/null 2>&1 || \
+		wsconsctl mouse1.reverse_scrolling=1 >/dev/null 2>&1 || true
+elif command -v wsconsctl >/dev/null 2>&1; then
+	wsconsctl mouse.reverse_scrolling=1 >/dev/null 2>&1 || true
+	wsconsctl mouse1.reverse_scrolling=1 >/dev/null 2>&1 || true
 fi
 
 # ── wallpaper ───────────────────────────────────────────────────────────────
